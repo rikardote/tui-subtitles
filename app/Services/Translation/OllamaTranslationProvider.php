@@ -24,7 +24,8 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
 
     public function name(): string
     {
-        $model = getenv('OLLAMA_MODEL') ?: config('translation.ollama_model', 'qwen2.5:7b');
+        $url = getenv('OLLAMA_URL') ?: config('translation.ollama_url', 'http://localhost:11434');
+        $model = $this->resolveModel($url);
 
         return 'Ollama (' . $model . ')';
     }
@@ -48,7 +49,7 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
     public function translate(string $text, string $targetLanguage): string
     {
         $url = getenv('OLLAMA_URL') ?: config('translation.ollama_url', 'http://localhost:11434');
-        $model = getenv('OLLAMA_MODEL') ?: config('translation.ollama_model', 'qwen2.5:7b');
+        $model = $this->resolveModel($url);
 
         $prompt = $this->buildPrompt($text, $targetLanguage);
 
@@ -98,6 +99,64 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
         }
 
         return $translated;
+    }
+
+    /**
+     * Resuelve el modelo a usar:
+     *  1. El configurado (OLLAMA_MODEL).
+     *  2. Si no existe, el primer modelo instalado en el servidor.
+     */
+    private function resolveModel(string $url): string
+    {
+        $configured = getenv('OLLAMA_MODEL') ?: config('translation.ollama_model', 'qwen2.5:7b');
+
+        if ($this->modelExists($url, $configured)) {
+            return $configured;
+        }
+
+        // Fallback: primer modelo instalado
+        $installed = $this->installedModels($url);
+
+        if ($installed !== []) {
+            return $installed[0];
+        }
+
+        return $configured;
+    }
+
+    private function modelExists(string $url, string $model): bool
+    {
+        foreach ($this->installedModels($url) as $installed) {
+            if ($installed === $model || str_starts_with($installed, $model . ':')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return string[] */
+    private function installedModels(string $url): array
+    {
+        $handle = @fopen($url . '/api/tags', 'r', false, stream_context_create(['http' => ['timeout' => 3]]));
+
+        if ($handle === false) {
+            return [];
+        }
+
+        $json = stream_get_contents($handle);
+        fclose($handle);
+
+        $data = json_decode((string) $json, true);
+
+        if (! is_array($data) || ! isset($data['models'])) {
+            return [];
+        }
+
+        return array_values(array_map(
+            fn (array $m) => (string) $m['name'],
+            $data['models']
+        ));
     }
 
     private function buildPrompt(string $text, string $targetLanguage): string

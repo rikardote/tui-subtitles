@@ -18,26 +18,40 @@ use RuntimeException;
  */
 final class OpenAICompatibleProvider implements TranslationProviderInterface
 {
+    /**
+     * @param  array{key:string, base_url:string, model:string, label:string}  $config
+     *        Claves de configuración (config('translation...')) y etiqueta visible.
+     */
+    public function __construct(
+        private readonly array $config = [
+            'key' => 'openai_api_key',
+            'base_url' => 'openai_base_url',
+            'model' => 'openai_model',
+            'label' => 'OpenAI-compatible',
+        ],
+    ) {
+    }
+
     public function name(): string
     {
-        $model = getenv('OPENAI_MODEL') ?: config('translation.openai_model', 'gpt-4o-mini');
+        $model = getenv(strtoupper($this->config['model'])) ?: config('translation.' . $this->config['model'], 'gpt-4o-mini');
 
-        return 'OpenAI-compatible (' . $model . ')';
+        return $this->config['label'] . ' (' . $model . ')';
     }
 
     public function available(): bool
     {
-        return (getenv('OPENAI_API_KEY') ?: config('translation.openai_api_key', '')) !== '';
+        return (getenv(strtoupper($this->config['key'])) ?: config('translation.' . $this->config['key'], '')) !== '';
     }
 
     public function translate(string $text, string $targetLanguage): string
     {
-        $apiKey = getenv('OPENAI_API_KEY') ?: config('translation.openai_api_key', '');
-        $baseUrl = rtrim(getenv('OPENAI_BASE_URL') ?: config('translation.openai_base_url', 'https://api.openai.com/v1'), '/');
-        $model = getenv('OPENAI_MODEL') ?: config('translation.openai_model', 'gpt-4o-mini');
+        $apiKey = getenv(strtoupper($this->config['key'])) ?: config('translation.' . $this->config['key'], '');
+        $baseUrl = rtrim(getenv(strtoupper($this->config['base_url'])) ?: config('translation.' . $this->config['base_url'], 'https://api.openai.com/v1'), '/');
+        $model = getenv(strtoupper($this->config['model'])) ?: config('translation.' . $this->config['model'], 'gpt-4o-mini');
 
         if ($apiKey === '') {
-            throw new RuntimeException('Falta OPENAI_API_KEY en el .env.');
+            throw new RuntimeException('Falta la API key en el .env (' . $this->config['key'] . ').');
         }
 
         $target = $targetLanguage === 'es' ? 'Spanish (es)' : $targetLanguage;

@@ -45,12 +45,13 @@ return [
     //   deep-translator → Google Translate gratuito (sin modelo)
     //   ollama          → LLM local gratuito (modelo configurable)
     //   openai          → OpenAI u API compatible (GPT, Groq, OpenRouter...)
+    //   deepseek        → DeepSeek (deepseek-chat / deepseek-reasoner)
     'translation' => [
         'provider' => env('TRANSLATION_PROVIDER', 'deep-translator'),
         'target_language' => 'es',
         'batch_size' => 50,          // bloques por solicitud de traducción
         'max_retries' => 3,
-        'timeout_seconds' => 30,
+        'timeout_seconds' => 60,
 
         // Ollama (LLM local)
         'ollama_url' => env('OLLAMA_URL', 'http://localhost:11434'),
@@ -60,6 +61,11 @@ return [
         'openai_api_key' => env('OPENAI_API_KEY', ''),
         'openai_base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
         'openai_model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+
+        // DeepSeek (API compatible con OpenAI)
+        'deepseek_api_key' => env('DEEPSEEK_API_KEY', ''),
+        'deepseek_base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1'),
+        'deepseek_model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
     ],
 
     // Escaneo automático periódico (intervalo en minutos).

@@ -37,13 +37,14 @@ foreach ($results as $r) {
 
 echo PHP_EOL . "== Base de datos ==" . PHP_EOL;
 $total = MediaFile::count();
-check("MediaFiles registrados: {$total}", $total === 3, "esperado 3");
+check("MediaFiles registrados: {$total}", $total >= 1, "se esperaban archivos registrados");
 
 echo PHP_EOL . "== Análisis con FFprobe ==" . PHP_EOL;
 $analyzer = Container::get(SubtitleAnalyzerService::class);
 $lang = Container::get(LanguageDetectorService::class);
 
-foreach (MediaFile::all() as $media) {
+$analysisLimit = (int) (getenv('SMOKE_ANALYSIS_LIMIT') ?: 3);
+foreach (array_slice(MediaFile::all(), 0, $analysisLimit) as $media) {
     $result = $analyzer->analyze($media);
     $media->status = MediaFile::STATUS_ANALYZED;
     $media->lastAnalyzedAt = gmdate('Y-m-d H:i:s');

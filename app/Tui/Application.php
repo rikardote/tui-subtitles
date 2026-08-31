@@ -584,6 +584,7 @@ final class Application
     {
         $providers = [
             'deep-translator' => 'deep-translator (Google, gratuito, sin API key)',
+            'deepseek' => 'DeepSeek (deepseek-chat / deepseek-reasoner)',
             'ollama' => 'Ollama (LLM local, gratuito, offline)',
             'openai' => 'OpenAI / API compatible (GPT, Groq, OpenRouter...)',
         ];
@@ -601,13 +602,19 @@ final class Application
                 'Modelo (p.ej. gpt-4o-mini, llama-3.1-8b-instant):',
                 default: (string) config('translation.openai_model')
             );
+        } elseif ($choice === 'deepseek') {
+            $model = \Laravel\Prompts\text(
+                'Modelo DeepSeek (deepseek-chat o deepseek-reasoner):',
+                default: (string) config('translation.deepseek_model')
+            );
         }
 
         // Persistir en el .env
         $this->writeEnv([
             'TRANSLATION_PROVIDER' => $choice,
-            'OLLAMA_MODEL' => $model,
-            'OPENAI_MODEL' => $model,
+            'OLLAMA_MODEL' => $choice === 'ollama' ? $model : null,
+            'OPENAI_MODEL' => $choice === 'openai' ? $model : null,
+            'DEEPSEEK_MODEL' => $choice === 'deepseek' ? $model : null,
         ]);
 
         // Recargar configuración y limpiar la instancia cacheada del proveedor

@@ -69,7 +69,18 @@ final class Container
             ),
             DeepTranslatorProvider::class => new DeepTranslatorProvider(self::get(ProcessRunner::class)),
             OllamaTranslationProvider::class => new OllamaTranslationProvider(self::get(ProcessRunner::class)),
-            OpenAICompatibleProvider::class => new OpenAICompatibleProvider(),
+            OpenAICompatibleProvider::class => new OpenAICompatibleProvider([
+                'key' => 'openai_api_key',
+                'base_url' => 'openai_base_url',
+                'model' => 'openai_model',
+                'label' => 'OpenAI-compatible',
+            ]),
+            'deepseek-provider' => new OpenAICompatibleProvider([
+                'key' => 'deepseek_api_key',
+                'base_url' => 'deepseek_base_url',
+                'model' => 'deepseek_model',
+                'label' => 'DeepSeek',
+            ]),
             TranslationProviderInterface::class => self::resolveTranslationProvider(),
             TranslationBatchService::class => new TranslationBatchService(self::get(TranslationProviderInterface::class)),
             SubtitleTranslatorService::class => new SubtitleTranslatorService(
@@ -98,6 +109,7 @@ final class Container
         return match ($provider) {
             'ollama' => self::get(OllamaTranslationProvider::class),
             'openai', 'openai-compatible' => self::get(OpenAICompatibleProvider::class),
+            'deepseek' => self::get('deepseek-provider'),
             default => self::get(DeepTranslatorProvider::class),
         };
     }

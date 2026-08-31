@@ -79,10 +79,16 @@ o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
 | Proveedor | Modelo | Requisitos | Coste |
 |---|---|---|---|
 | `deep-translator` | Google Translate (automático) | pip install deep-translator | Gratis |
+| `deepseek` | `deepseek-chat`, `deepseek-reasoner` | API key de DeepSeek | De pago / freemium |
 | `ollama` | `qwen2.5:7b`, `llama3.1`, `mistral`… | [Ollama](https://ollama.com) instalado y modelo descargado | Gratis, offline |
 | `openai` | `gpt-4o-mini`, o cualquier API compatible (Groq, OpenRouter…) | API key | De pago / freemium |
 
 ```env
+TRANSLATION_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_MODEL=deepseek-chat
+
+# o bien:
 TRANSLATION_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b

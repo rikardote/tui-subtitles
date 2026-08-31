@@ -14,6 +14,7 @@ final class ProcessingTask
 {
     public const ACTION_EXTRACT = 'extract';
     public const ACTION_TRANSLATE = 'translate';
+    public const ACTION_DELETE = 'delete';
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_RUNNING = 'running';
@@ -112,7 +113,12 @@ final class ProcessingTask
 
     public function actionLabel(): string
     {
-        return $this->action === self::ACTION_EXTRACT ? 'Extracción' : 'Traducción';
+        return match ($this->action) {
+            self::ACTION_EXTRACT => 'Extracción',
+            self::ACTION_TRANSLATE => 'Traducción',
+            self::ACTION_DELETE => 'Eliminación',
+            default => $this->action,
+        };
     }
 
     private static function fromRow(array $row): self

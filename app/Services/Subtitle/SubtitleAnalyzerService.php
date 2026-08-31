@@ -155,6 +155,15 @@ final class SubtitleAnalyzerService
             $track->isSdh = str_contains($suffix, 'sdh') || stripos($entry, 'sdh') !== false;
             $track->isForced = str_contains($suffix, 'forced');
 
+            // Si el archivo externo está en el idioma destino (p.ej. .es.srt),
+            // se marca como GENERADO: probablemente lo creó la propia aplicación
+            // (o el usuario lo descargó; en ambos casos es descartable).
+            $targetLang = (string) config('translation.target_language', 'es');
+            $trackLang = $track->languageDetected ?? $track->language;
+            if (in_array($trackLang, [$targetLang, self::iso2($targetLang)], true)) {
+                $track->sourceType = SubtitleTrack::SOURCE_GENERATED;
+            }
+
             // Nivel 3 por contenido
             if ($track->languageDetected === null && is_readable($track->path)) {
                 $sample = $this->parser->extractSample((string) $track->path);
@@ -171,6 +180,25 @@ final class SubtitleAnalyzerService
         }
 
         return $tracks;
+    }
+
+    /** Convierte un código ISO 639-1 a 639-2 (p.ej. es → spa). */
+    private static function iso2(string $code): string
+    {
+        return match ($code) {
+            'es' => 'spa',
+            'en' => 'eng',
+            'fr' => 'fra',
+            'de' => 'deu',
+            'it' => 'ita',
+            'pt' => 'por',
+            'ja' => 'jpn',
+            'zh' => 'chi',
+            'ko' => 'kor',
+            'ru' => 'rus',
+            'ar' => 'ara',
+            default => $code,
+        };
     }
 
     private function isSdh(?string $title, string $codec): bool

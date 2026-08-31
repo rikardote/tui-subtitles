@@ -10,6 +10,7 @@ use App\Services\Container;
 use App\Services\Library\MediaPathService;
 use App\Services\Library\MediaScannerService;
 use App\Services\Media\SubtitleExtractorService;
+use App\Services\Media\SubtitleRemovalService;
 use App\Services\Subtitle\SubtitleAnalyzerService;
 use App\Services\Subtitle\SubtitleFilenameService;
 use Laravel\Prompts\Progress;
@@ -35,6 +36,7 @@ final class Application
         private readonly SubtitleAnalyzerService $analyzer,
         private readonly SubtitleExtractorService $extractor,
         private readonly SubtitleFilenameService $filenames,
+        private readonly SubtitleRemovalService $removal,
     ) {
     }
 
@@ -46,6 +48,7 @@ final class Application
             Container::get(SubtitleAnalyzerService::class),
             Container::get(SubtitleExtractorService::class),
             Container::get(SubtitleFilenameService::class),
+            Container::get(SubtitleRemovalService::class),
         );
     }
 
@@ -204,7 +207,11 @@ final class Application
         foreach ($tracks as $track) {
             $label = sprintf(
                 '[%s] %s — %s',
-                $track->sourceType === 'internal' ? (string) $track->streamIndex : 'ext',
+                match ($track->sourceType) {
+                    'internal' => (string) $track->streamIndex,
+                    'generated' => 'gen',
+                    default => 'ext',
+                },
                 $track->languageLabel(),
                 $track->codecLabel()
             );
@@ -218,14 +225,25 @@ final class Application
             if (! $track->isTextBased) {
                 $label .= ' ⚠ imagen';
             }
+            if ($track->sourceType === 'generated') {
+                $label .= ' ✓ generado por la app';
+            }
 
             $options['track:' . $track->id] = $label;
         }
+
+        $generatedCount = count(array_filter(
+            $tracks,
+            fn ($t) => $t->sourceType === 'generated'
+        ));
 
         $hasSpanish = $media->hasSpanish();
         $esExists = $this->filenames->existsForMedia($media);
 
         $options['__separator'] = '────────────────────────────────';
+        if ($generatedCount > 0) {
+            $options['delete-generated'] = '🗑  Eliminar subtítulos generados (' . $generatedCount . ')';
+        }
         $options['__back'] = '← Volver al explorador';
 
         $choice = select(
@@ -234,11 +252,12 @@ final class Application
             default: array_key_first($options)
         );
 
-        if ($choice === '__back') {
+        if ($choice === '__back' || $choice === '__separator') {
             return;
         }
 
-        if ($choice === '__separator') {
+        if ($choice === 'delete-generated') {
+            $this->deleteGeneratedSubtitles($media);
             return;
         }
 
@@ -279,7 +298,11 @@ final class Application
             $rows = [];
             foreach ($tracks as $track) {
                 $rows[] = [
-                    $track->sourceType === 'internal' ? 'Interna #' . $track->streamIndex : 'Externa',
+                    match ($track->sourceType) {
+                        'internal' => 'Interna #' . $track->streamIndex,
+                        'generated' => 'Generada',
+                        default => 'Externa',
+                    },
                     $track->languageLabel(),
                     $track->codecLabel(),
                     $track->isTextBased ? 'Texto' : 'Imagen',
@@ -312,12 +335,23 @@ final class Application
         $options = [
             'translate' => 'Traducir al español',
             'extract' => 'Solo extraer',
-            '__back' => '← Volver',
         ];
+
+        // Los subtítulos generados o externos pueden eliminarse
+        if ($track->sourceType !== \App\Models\SubtitleTrack::SOURCE_INTERNAL) {
+            $options['delete'] = '🗑  Borrar este subtítulo';
+        }
+
+        $options['__back'] = '← Volver';
 
         $action = select('Seleccione la acción para ' . $track->languageLabel(), $options, default: 'translate');
 
         if ($action === '__back') {
+            return;
+        }
+
+        if ($action === 'delete') {
+            $this->deleteSingleSubtitle($media, $track);
             return;
         }
 
@@ -391,6 +425,72 @@ final class Application
             note('Bloques traducidos: ' . $result['blocks']);
         } catch (\Throwable $e) {
             warning('Error en la traducción: ' . $e->getMessage());
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Eliminación de subtítulos
+    // ────────────────────────────────────────────────────────────────
+
+    private function deleteSingleSubtitle(MediaFile $media, \App\Models\SubtitleTrack $track): void
+    {
+        $label = $track->path !== null ? basename($track->path) : $track->languageLabel();
+
+        $confirm = confirm(
+            "¿Borrar definitivamente el subtítulo?\n" . $label,
+            default: false
+        );
+
+        if (! $confirm) {
+            warning('Cancelado. No se borró nada.');
+            return;
+        }
+
+        try {
+            $result = $this->removal->deleteTrack($media, $track);
+
+            if ($result['deletedFile']) {
+                note('✓ Archivo borrado: ' . $label);
+            } else {
+                note('✓ Registro eliminado (el archivo no existía en disco).');
+            }
+        } catch (\Throwable $e) {
+            warning('Error al borrar: ' . $e->getMessage());
+        }
+    }
+
+    private function deleteGeneratedSubtitles(MediaFile $media): void
+    {
+        $generated = array_values(array_filter(
+            $media->tracks(),
+            fn ($t) => $t->sourceType === 'generated'
+        ));
+
+        if ($generated === []) {
+            note('No hay subtítulos generados que eliminar.');
+            return;
+        }
+
+        $files = implode("\n", array_map(
+            fn ($t) => '  • ' . basename((string) $t->path),
+            $generated
+        ));
+
+        $confirm = confirm(
+            "¿Eliminar TODOS los subtítulos generados para este video?\n" . $files,
+            default: false
+        );
+
+        if (! $confirm) {
+            warning('Cancelado. No se borró nada.');
+            return;
+        }
+
+        try {
+            $count = $this->removal->deleteGeneratedFor($media);
+            note('✓ Subtítulos eliminados: ' . $count);
+        } catch (\Throwable $e) {
+            warning('Error al eliminar: ' . $e->getMessage());
         }
     }
 

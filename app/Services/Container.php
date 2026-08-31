@@ -12,6 +12,7 @@ use App\Services\Library\MediaFileDiscoveryService;
 use App\Services\Library\MediaPathService;
 use App\Services\Library\MediaScannerService;
 use App\Services\Media\SubtitleExtractorService;
+use App\Services\Media\SubtitleRemovalService;
 use App\Services\Subtitle\LanguageDetectorService;
 use App\Services\Subtitle\SubtitleAnalyzerService;
 use App\Services\Subtitle\SubtitleFilenameService;
@@ -95,6 +96,7 @@ final class Container
                 self::get(SubtitleParserService::class),
                 self::get(SubtitleTranslatorService::class),
             ),
+            SubtitleRemovalService::class => new SubtitleRemovalService(),
             default => throw new \InvalidArgumentException("Servicio no registrado: {$class}"),
         };
     }

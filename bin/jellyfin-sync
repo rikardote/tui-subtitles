@@ -1,0 +1,123 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Sincronización con Jellyfin: lee el catálogo vía API REST, detecta los
+ * videos sin subtítulos en español y los traduce (extrae + traduce).
+ *
+ * Jellyfin detecta solo los .srt generados junto al video; no requiere plugin.
+ *
+ * Uso:
+ *   ./bin/jellyfin-sync                 # procesa todo el catálogo
+ *   ./bin/jellyfin-sync --dry-run       # solo muestra lo que haría
+ *   ./bin/jellyfin-sync --limit=10      # procesa solo 10 ítems (pruebas)
+ *   ./bin/jellyfin-sync --type=Episode  # solo episodios de series
+ *   ./bin/jellyfin-sync --type=Movie    # solo películas
+ *   ./bin/jellyfin-sync --check         # verifica conexión y configuración
+ *
+ * Cron sugerido (una vez al día, cuando el servidor descansa):
+ *   0 3 * * * /ruta/a/bin/jellyfin-sync >> /ruta/a/storage/logs/jellyfin-sync.log 2>&1
+ */
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use App\Services\Container;
+use App\Services\Jellyfin\JellyfinApiClient;
+use App\Services\Jellyfin\JellyfinSyncService;
+
+$args = $argv;
+array_shift($args);
+
+$dryRun = in_array('--dry-run', $args, true);
+$check = in_array('--check', $args, true);
+$limit = 0;
+$itemTypes = 'Movie,Episode';
+
+foreach ($args as $arg) {
+    if (str_starts_with($arg, '--limit=')) {
+        $limit = max(0, (int) substr($arg, strlen('--limit=')));
+    }
+
+    if (str_starts_with($arg, '--type=')) {
+        $itemTypes = substr($arg, strlen('--type='));
+    }
+}
+
+$log = fn (string $msg) => print '[' . date('Y-m-d H:i:s') . '] ' . $msg . PHP_EOL;
+
+try {
+    $api = Container::get(JellyfinApiClient::class);
+
+    if (! $api->isConfigured()) {
+        fwrite(STDERR, '[ERROR] Jellyfin no configurado. Define JELLYFIN_URL y JELLYFIN_API_KEY en el .env' . PHP_EOL);
+        fwrite(STDERR, '        (Dashboard de Jellyfin → Advanced → API Keys).' . PHP_EOL);
+        exit(1);
+    }
+
+    if ($check) {
+        $info = $api->systemInfo();
+        $log('Conectado a Jellyfin "' . ($info['ServerName'] ?? '?') . '" v' . ($info['Version'] ?? '?'));
+
+        $items = $api->items($itemTypes, 0);
+        $log('Ítems de video (' . $itemTypes . '): ' . count($items));
+
+        $mapper = Container::get(\App\Services\Jellyfin\JellyfinPathMapper::class);
+        $log('Mapa de rutas contenedor→host:');
+
+        foreach ($mapper->map() as $container => $host) {
+            $log("    {$container}  →  {$host}");
+        }
+
+        exit(0);
+    }
+
+    $service = Container::get(JellyfinSyncService::class);
+
+    $log('Sincronización Jellyfin iniciada'
+        . ($dryRun ? ' (DRY-RUN, no se traduce nada)' : '')
+        . " [tipos: {$itemTypes}]"
+        . ($limit > 0 ? " [límite: {$limit}]" : ''));
+
+    // Lock para evitar ejecuciones superpuestas (cron + manual).
+    $lockDir = base_path('storage');
+    $lock = fopen($lockDir . '/jellyfin-sync.lock', 'c');
+
+    if (! flock($lock, LOCK_EX | LOCK_NB)) {
+        $log('Ya hay una sincronización en curso; se omite esta ejecución.');
+        exit(0);
+    }
+
+    try {
+        $stats = $service->sync([
+            'limit' => $limit,
+            'itemTypes' => $itemTypes,
+            'dryRun' => $dryRun,
+            'onProgress' => $log,
+        ]);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+
+    $log('── Resumen ──────────────────────────────────────────────');
+    $log('  Total ítems:             ' . $stats['total']);
+    $log('  Ruta no localizable:     ' . $stats['notFound']);
+    $log('  Ya con español:          ' . $stats['alreadySpanish']);
+    $log('  Sin pista fuente:        ' . $stats['noSource']);
+    $log('  Traducidos' . ($dryRun ? ' (simulado)' : '') . ':  ' . $stats['translated']);
+
+    if ($stats['errors'] !== []) {
+        $log('  Errores:                 ' . count($stats['errors']));
+
+        foreach ($stats['errors'] as $error) {
+            $log('    ✗ ' . $error['name'] . ' — ' . $error['message']);
+        }
+    }
+
+    exit($stats['errors'] === [] ? 0 : 2);
+} catch (Throwable $e) {
+    fwrite(STDERR, '[ERROR] ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}

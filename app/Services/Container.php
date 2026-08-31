@@ -11,6 +11,9 @@ use App\Services\Library\MediaChangeDetectorService;
 use App\Services\Library\MediaFileDiscoveryService;
 use App\Services\Library\MediaPathService;
 use App\Services\Library\MediaScannerService;
+use App\Services\Jellyfin\JellyfinApiClient;
+use App\Services\Jellyfin\JellyfinPathMapper;
+use App\Services\Jellyfin\JellyfinSyncService;
 use App\Services\Media\SubtitleExtractorService;
 use App\Services\Media\SubtitleRemovalService;
 use App\Services\Subtitle\LanguageDetectorService;
@@ -82,6 +85,12 @@ final class Container
                 'model' => 'deepseek_model',
                 'label' => 'DeepSeek',
             ]),
+            'meta-muse-provider' => new OpenAICompatibleProvider([
+                'key' => 'meta_muse_api_key',
+                'base_url' => 'meta_muse_base_url',
+                'model' => 'meta_muse_model',
+                'label' => 'Meta Muse Spark',
+            ]),
             TranslationProviderInterface::class => self::resolveTranslationProvider(),
             TranslationBatchService::class => new TranslationBatchService(self::get(TranslationProviderInterface::class)),
             SubtitleTranslatorService::class => new SubtitleTranslatorService(
@@ -97,6 +106,22 @@ final class Container
                 self::get(SubtitleTranslatorService::class),
             ),
             SubtitleRemovalService::class => new SubtitleRemovalService(),
+            JellyfinApiClient::class => new JellyfinApiClient(
+                (string) config('jellyfin.url', ''),
+                (string) config('jellyfin.api_key', ''),
+            ),
+            JellyfinPathMapper::class => new JellyfinPathMapper(
+                (array) config('jellyfin.path_map', []),
+                (array) config('media_paths', []),
+                (string) config('jellyfin.container_prefix', '/data'),
+            ),
+            JellyfinSyncService::class => new JellyfinSyncService(
+                self::get(JellyfinApiClient::class),
+                self::get(JellyfinPathMapper::class),
+                self::get(MediaChangeDetectorService::class),
+                self::get(SubtitleAnalyzerService::class),
+                self::get(SubtitleExtractorService::class),
+            ),
             default => throw new \InvalidArgumentException("Servicio no registrado: {$class}"),
         };
     }
@@ -112,6 +137,7 @@ final class Container
             'ollama' => self::get(OllamaTranslationProvider::class),
             'openai', 'openai-compatible' => self::get(OpenAICompatibleProvider::class),
             'deepseek' => self::get('deepseek-provider'),
+            'meta-muse', 'meta-muse-spark' => self::get('meta-muse-provider'),
             default => self::get(DeepTranslatorProvider::class),
         };
     }

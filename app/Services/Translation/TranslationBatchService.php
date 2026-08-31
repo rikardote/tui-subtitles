@@ -78,10 +78,11 @@ final class TranslationBatchService
      * Traduce múltiples bloques agrupados en lotes (una llamada por lote).
      *
      * @param  array<int, array>  $blocks
-     * @param  callable(int, int):void|null  $onProgress  fn($done, $total) por bloque
+     * @param  callable(int, int):void|null  $onProgress  fn($done, $total) por lote
+     * @param  callable(array<int, array>):void|null  $onBatch  fn($acumulado) tras cada lote
      * @return array<int, array>
      */
-    public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null): array
+    public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null, ?callable $onBatch = null): array
     {
         $batchSize = max(1, (int) config('translation.batch_size', 50));
         $result = [];
@@ -97,6 +98,7 @@ final class TranslationBatchService
 
             $done += count($translatedBatch);
             $onProgress?->__invoke($done, $total);
+            $onBatch?->__invoke($result);
         }
 
         return $result;

@@ -69,9 +69,36 @@ final class SubtitleTranslatorService
 
             $target = (string) config('translation.target_language', 'es');
 
-            $translated = $this->batch->translateBlocks($blocks, $target, $onProgress);
+            // ── Checkpointing: reanudar si existe un .part previo ──
+            $checkpointPath = $outputPath . '.part';
+            $already = $this->loadCheckpoint($checkpointPath);
 
-            $output = $this->parser->build($translated);
+            $pending = array_values(array_filter(
+                $blocks,
+                fn (array $b) => ! isset($already[$b['index']])
+            ));
+
+            if ($already !== [] && $onProgress !== null) {
+                $onProgress(count($already), count($blocks));
+            }
+
+            $translated = $this->batch->translateBlocks(
+                $pending,
+                $target,
+                $onProgress,
+                // Guarda el progreso acumulado tras cada lote (reanudable)
+                function (array $accumulated) use ($already, $checkpointPath): void {
+                    $merged = $this->mergeByIndex($already, $accumulated);
+                    $ordered = $this->orderByIndex($merged);
+                    file_put_contents($checkpointPath, $this->parser->build($ordered), LOCK_EX);
+                }
+            );
+
+            // Unir los ya traducidos (checkpoint) con los nuevos
+            $merged = $this->mergeByIndex($already, $translated);
+            $ordered = $this->orderByIndex($merged);
+
+            $output = $this->parser->build($ordered);
 
             $validation = $this->validator->validate($output);
 
@@ -88,6 +115,11 @@ final class SubtitleTranslatorService
 
             if (file_put_contents($outputPath, $output, LOCK_EX) === false) {
                 throw new RuntimeException('No se pudo escribir el archivo de salida.');
+            }
+
+            // Limpiar el checkpoint al completar
+            if (is_file($checkpointPath)) {
+                @unlink($checkpointPath);
             }
 
             if ($task !== null) {
@@ -108,6 +140,60 @@ final class SubtitleTranslatorService
 
             throw $e;
         }
+    }
+
+    /**
+     * Carga un checkpoint previo (bloques ya traducidos, por índice).
+     *
+     * @return array<int, array>
+     */
+    private function loadCheckpoint(string $checkpointPath): array
+    {
+        if (! is_file($checkpointPath) || filesize($checkpointPath) === 0) {
+            return [];
+        }
+
+        $already = [];
+
+        foreach ($this->parser->parse((string) file_get_contents($checkpointPath)) as $b) {
+            $already[$b['index']] = $b;
+        }
+
+        return $already;
+    }
+
+    /**
+     * Une bloques por índice; los nuevos tienen prioridad.
+     *
+     * @param  array<int, array>  ...$sets
+     * @return array<int, array>
+     */
+    private function mergeByIndex(array ...$sets): array
+    {
+        $merged = [];
+
+        foreach ($sets as $set) {
+            foreach ($set as $block) {
+                $merged[$block['index']] = $block;
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * Ordena bloques por índice numérico.
+     *
+     * @param  array<int, array>  $blocks
+     * @return array<int, array>
+     */
+    private function orderByIndex(array $blocks): array
+    {
+        $sorted = $blocks;
+
+        uasort($sorted, fn (array $a, array $b) => $a['index'] <=> $b['index']);
+
+        return array_values($sorted);
     }
 
     private function uuid(): string

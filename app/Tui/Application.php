@@ -714,6 +714,7 @@ final class Application
         $providers = [
             'deep-translator' => 'deep-translator (Google, gratuito, sin API key)',
             'deepseek' => 'DeepSeek (deepseek-chat / deepseek-reasoner)',
+            'meta-muse' => 'Meta Muse Spark (meta/muse-spark-1.2-contributor)',
             'ollama' => 'Ollama (LLM local, gratuito, offline)',
             'openai' => 'OpenAI / API compatible (GPT, Groq, OpenRouter...)',
         ];
@@ -736,6 +737,11 @@ final class Application
                 'Modelo DeepSeek (deepseek-chat o deepseek-reasoner):',
                 default: (string) config('translation.deepseek_model')
             );
+        } elseif ($choice === 'meta-muse') {
+            $model = \Laravel\Prompts\text(
+                'Modelo Meta Muse Spark (p.ej. meta/muse-spark-1.2-contributor):',
+                default: (string) config('translation.meta_muse_model')
+            );
         }
 
         // Persistir en el .env
@@ -744,6 +750,7 @@ final class Application
             'OLLAMA_MODEL' => $choice === 'ollama' ? $model : null,
             'OPENAI_MODEL' => $choice === 'openai' ? $model : null,
             'DEEPSEEK_MODEL' => $choice === 'deepseek' ? $model : null,
+            'META_MUSE_MODEL' => $choice === 'meta-muse' ? $model : null,
         ]);
 
         // Recargar configuración y limpiar la instancia cacheada del proveedor

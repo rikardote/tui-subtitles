@@ -50,9 +50,9 @@ return [
     'translation' => [
         'provider' => env('TRANSLATION_PROVIDER', 'deep-translator'),
         'target_language' => 'es',
-        'batch_size' => 50,          // bloques por solicitud de traducción
+        'batch_size' => (int) env('TRANSLATION_BATCH_SIZE', 50),          // bloques por solicitud de traducción
         'max_retries' => 3,
-        'timeout_seconds' => 60,
+        'timeout_seconds' => (int) env('TRANSLATION_TIMEOUT_SECONDS', 300),
 
         // Ollama (LLM local)
         'ollama_url' => env('OLLAMA_URL', 'http://localhost:11434'),
@@ -67,6 +67,37 @@ return [
         'deepseek_api_key' => env('DEEPSEEK_API_KEY', ''),
         'deepseek_base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1'),
         'deepseek_model' => env('DEEPSEEK_MODEL', 'deepseek-chat'),
+
+        // Meta Muse Spark (Meta Model API — API compatible con OpenAI)
+        'meta_muse_api_key' => env('META_MUSE_API_KEY', ''),
+        'meta_muse_base_url' => env('META_MUSE_BASE_URL', ''),
+        'meta_muse_model' => env('META_MUSE_MODEL', 'meta/muse-spark-1.2-contributor'),
+    ],
+
+    // Integración con Jellyfin (opcional).
+    // Jellyfin detecta automáticamente los .srt que la app genera junto al video,
+    // así que no se necesita ningún plugin en el servidor.
+    'jellyfin' => [
+        'url' => env('JELLYFIN_URL', 'http://localhost:8096'),
+        'api_key' => env('JELLYFIN_API_KEY', ''),
+
+        // Prefijo de rutas dentro del contenedor Jellyfin (docker).
+        'container_prefix' => env('JELLYFIN_CONTAINER_PREFIX', '/data'),
+
+        // Mapa explícito contenedor=host separado por comas (opcional).
+        // Ej: /data/movies=/mnt/disk2tb/data/media/movies,/data/tvshows=/mnt/disk2tb/data/media/tv
+        // Si está vacío se deduce de media_paths: /data/<carpeta> → <ruta host>.
+        'path_map' => array_filter(array_reduce(
+            explode(',', env('JELLYFIN_PATH_MAP', '')),
+            function (array $acc, string $pair): array {
+                [$container, $host] = array_pad(explode('=', trim($pair), 2), 2, '');
+                if ($container !== '' && $host !== '') {
+                    $acc[trim($container)] = trim($host);
+                }
+                return $acc;
+            },
+            []
+        )),
     ],
 
     // Escaneo automático periódico (intervalo en minutos).

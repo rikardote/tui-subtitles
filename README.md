@@ -78,12 +78,19 @@ o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
 
 | Proveedor | Modelo | Requisitos | Coste |
 |---|---|---|---|
+| `deepseek` | `deepseek-chat` | API key de DeepSeek | ~$0.045/película |
+| `meta-muse` | `muse-spark-1.2-contributor` | API key de Meta Model API | **~$0.01/película** (Contributor) |
 | `deep-translator` | Google Translate (automático) | pip install deep-translator | Gratis |
-| `deepseek` | `deepseek-chat`, `deepseek-reasoner` | API key de DeepSeek | De pago / freemium |
-| `ollama` | `qwen2.5:7b`, `llama3.1`, `mistral`… | [Ollama](https://ollama.com) instalado y modelo descargado | Gratis, offline |
+| `ollama` | `gemma2:2b`, `qwen2.5`… | [Ollama](https://ollama.com) + modelo descargado | Gratis, offline |
 | `openai` | `gpt-4o-mini`, o cualquier API compatible (Groq, OpenRouter…) | API key | De pago / freemium |
 
 ```env
+TRANSLATION_PROVIDER=meta-muse
+META_MUSE_API_KEY=LLM_...
+META_MUSE_BASE_URL=https://api.ai.meta.com/v1
+META_MUSE_MODEL=muse-spark-1.2-contributor
+
+# o bien:
 TRANSLATION_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-...
 DEEPSEEK_MODEL=deepseek-chat
@@ -91,13 +98,7 @@ DEEPSEEK_MODEL=deepseek-chat
 # o bien:
 TRANSLATION_PROVIDER=ollama
 OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-
-# o bien:
-TRANSLATION_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+OLLAMA_MODEL=gemma2:2b
 ```
 
 Para instalar un modelo local con Ollama:
@@ -122,6 +123,8 @@ app/Services/              Lógica de negocio (reutilizable en web)
 ├── Library/               Rutas, descubrimiento, escaneo, diff
 ├── Media/                 Extracción de subtítulos (FFmpeg)
 ├── Subtitle/              Análisis, parser, idioma, validación, nombres
+├── Jellyfin/              Cliente API REST, mapeo rutas contenedor→host,
+│                          sincronización del catálogo
 └── Translation/           Proveedor (interfaz), traducción por bloques
 app/Infrastructure/        FFprobe, FFmpeg, ProcessRunner
 app/Models/                MediaFile, SubtitleTrack, ProcessingTask
@@ -142,6 +145,49 @@ app/Storage/Database.php   SQLite (PDO) + migraciones
   (< 2 s) y el escaneo automático es incremental.
 - **Preparado para Jobs/Queue**: los servicios son independientes de la TUI;
   `bin/scan` ya es no interactivo para cron.
+
+## Integración con Jellyfin (Docker) ⭐
+
+**No se necesita ningún plugin en Jellyfin.** La app genera `Pelicula.es.srt`
+junto al video; Jellyfin detecta automáticamente los subtítulos externos
+con esa convención y los ofrece en el reproductor.
+
+La app corre en el **host** y lee el catálogo de Jellyfin (contenedor) vía
+API REST. Las rutas del contenedor (`/data/movies/...`) se traducen a rutas
+del host (`/mnt/disk2tb/data/media/movies/...`) con un mapa configurable.
+
+### Configuración
+
+```env
+JELLYFIN_URL=http://localhost:8096
+# API key: Dashboard de Jellyfin → Advanced → API Keys
+JELLYFIN_API_KEY=tu-api-key
+JELLYFIN_CONTAINER_PREFIX=/data
+# Mapa contenedor→host (si vacío se deduce por basename de media_paths)
+JELLYFIN_PATH_MAP=/data/movies=/mnt/disk2tb/data/media/movies,/data/tvshows=/mnt/disk2tb/data/media/tv
+```
+
+### Uso
+
+```bash
+./bin/jellyfin-sync --check          # verifica conexión y mapa de rutas
+./bin/jellyfin-sync --dry-run        # muestra qué se traduciría (no traduce)
+./bin/jellyfin-sync --limit=10       # solo 10 ítems (pruebas)
+./bin/jellyfin-sync --type=Movie     # solo películas
+./bin/jellyfin-sync --type=Episode   # solo episodios
+./bin/jellyfin-sync                  # traduce todo lo pendiente
+```
+
+Cron sugerido (una vez al día):
+
+```bash
+0 3 * * * /home/usuario/subtitles/bin/jellyfin-sync >> /home/usuario/subtitles/storage/logs/jellyfin-sync.log 2>&1
+```
+
+El sync por ítem: registra el archivo, lo analiza con FFprobe si falta,
+comprueba si ya tiene español (lo omite), elige la mejor pista fuente
+(prefiere inglés en texto, interna o externa) y la extrae y traduce con
+el proveedor configurado (`TRANSLATION_PROVIDER`).
 
 ## Scheduler (escaneo automático)
 
@@ -164,3 +210,5 @@ php scripts/tui-test.php     # TUI con teclas simuladas
 - OCR para subtítulos de imagen (PGS/VobSub).
 - Proveedores de traducción adicionales (OpenAI, DeepL, LLM local).
 - Procesamiento masivo con confirmación y colas.
+- Plugin nativo de Jellyfin en C# (requiere .NET SDK; hoy la integración
+  por API + subtítulos externos cubre el caso de uso sin compilar nada).

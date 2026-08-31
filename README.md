@@ -66,14 +66,44 @@ cp .env.example .env   # ajustar rutas multimedia y binarios
 
 ## Configuración
 
-`config/app.php` y `.env`:
+**Carpetas multimedia** → `.env` (o `config/app.php` → `media_paths`):
 
 ```env
 MEDIA_PATH_MOVIES=/media/Movies
 MEDIA_PATH_TV=/media/TV
+```
+
+**Modelo de IA de traducción** → `TRANSLATION_PROVIDER` en `.env`,
+o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
+
+| Proveedor | Modelo | Requisitos | Coste |
+|---|---|---|---|
+| `deep-translator` | Google Translate (automático) | pip install deep-translator | Gratis |
+| `ollama` | `qwen2.5:7b`, `llama3.1`, `mistral`… | [Ollama](https://ollama.com) instalado y modelo descargado | Gratis, offline |
+| `openai` | `gpt-4o-mini`, o cualquier API compatible (Groq, OpenRouter…) | API key | De pago / freemium |
+
+```env
+TRANSLATION_PROVIDER=ollama
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b
+
+# o bien:
+TRANSLATION_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Para instalar un modelo local con Ollama:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:7b
+```
+
+Resto de variables:
+```env
 FFMPEG_BIN=/usr/bin/ffmpeg
 FFPROBE_BIN=/usr/bin/ffprobe
-DEEP_TRANSLATOR_BIN=/home/usuario/.local/bin/deep-translator
 SCAN_INTERVAL_MINUTES=15
 ```
 

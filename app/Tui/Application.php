@@ -21,6 +21,7 @@ use function Laravel\Prompts\progress;
 use function Laravel\Prompts\select;
 use function Laravel\Prompts\spin;
 use function Laravel\Prompts\table;
+use function Laravel\Prompts\text;
 use function Laravel\Prompts\warning;
 
 /**
@@ -555,7 +556,7 @@ final class Application
 
         table(['Biblioteca', 'Ruta', 'Estado'], $statusRows);
 
-        $provider = \App\Services\Container::get(\App\Services\Translation\DeepTranslatorProvider::class);
+        $provider = \App\Services\Container::get(\App\Services\Translation\TranslationProviderInterface::class);
         note('Proveedor de traducción: ' . $provider->name() . ($provider->available() ? ' (disponible)' : ' (NO disponible)'));
 
         table(
@@ -566,10 +567,78 @@ final class Application
                 ['Intervalo de escaneo', config('scan.interval_minutes') . ' min'],
                 ['Idioma destino', config('translation.target_language')],
                 ['Bloques por lote', (string) config('translation.batch_size')],
+                ['Proveedor', (string) config('translation.provider')],
+                ['Modelo Ollama', (string) config('translation.ollama_model')],
+                ['Modelo OpenAI', (string) config('translation.openai_model')],
             ]
         );
 
-        confirm('Volver al menú', default: true);
+        $change = confirm('¿Desea cambiar el proveedor o el modelo?', default: false);
+
+        if ($change) {
+            $this->changeProvider();
+        }
+    }
+
+    private function changeProvider(): void
+    {
+        $providers = [
+            'deep-translator' => 'deep-translator (Google, gratuito, sin API key)',
+            'ollama' => 'Ollama (LLM local, gratuito, offline)',
+            'openai' => 'OpenAI / API compatible (GPT, Groq, OpenRouter...)',
+        ];
+
+        $choice = select('Seleccione el proveedor de traducción', $providers, default: (string) config('translation.provider'));
+
+        $model = null;
+        if ($choice === 'ollama') {
+            $model = \Laravel\Prompts\text(
+                'Modelo Ollama (instalados con: ollama pull <modelo>):',
+                default: (string) config('translation.ollama_model')
+            );
+        } elseif ($choice === 'openai') {
+            $model = \Laravel\Prompts\text(
+                'Modelo (p.ej. gpt-4o-mini, llama-3.1-8b-instant):',
+                default: (string) config('translation.openai_model')
+            );
+        }
+
+        // Persistir en el .env
+        $this->writeEnv([
+            'TRANSLATION_PROVIDER' => $choice,
+            'OLLAMA_MODEL' => $model,
+            'OPENAI_MODEL' => $model,
+        ]);
+
+        // Recargar configuración y limpiar la instancia cacheada del proveedor
+        env_clear_cache();
+        config_clear_cache();
+        \App\Services\Container::flush();
+
+        note('Configuración guardada en .env. El nuevo proveedor se usará en la próxima traducción.');
+    }
+
+    private function writeEnv(array $values): void
+    {
+        $file = base_path('.env');
+        $content = is_file($file) ? (string) file_get_contents($file) : '';
+
+        foreach ($values as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            $pattern = '/^' . preg_quote($key, '/') . '=.*$/m';
+            $line = $key . '=' . $value;
+
+            if (preg_match($pattern, $content)) {
+                $content = preg_replace($pattern, $line, $content);
+            } else {
+                $content .= ($content === '' || str_ends_with($content, "\n") ? '' : "\n") . $line . "\n";
+            }
+        }
+
+        file_put_contents($file, $content, LOCK_EX);
     }
 
     // ────────────────────────────────────────────────────────────────

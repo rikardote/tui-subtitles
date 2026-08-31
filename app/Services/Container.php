@@ -18,8 +18,11 @@ use App\Services\Subtitle\SubtitleFilenameService;
 use App\Services\Subtitle\SubtitleParserService;
 use App\Services\Subtitle\SubtitleValidatorService;
 use App\Services\Translation\DeepTranslatorProvider;
+use App\Services\Translation\OllamaTranslationProvider;
+use App\Services\Translation\OpenAICompatibleProvider;
 use App\Services\Translation\SubtitleTranslatorService;
 use App\Services\Translation\TranslationBatchService;
+use App\Services\Translation\TranslationProviderInterface;
 
 /**
  * Contenedor de servicios simple.
@@ -33,6 +36,12 @@ final class Container
     public static function get(string $class): object
     {
         return self::$instances[$class] ??= self::build($class);
+    }
+
+    /** Limpia las instancias cacheadas (útil al cambiar configuración en vivo). */
+    public static function flush(): void
+    {
+        self::$instances = [];
     }
 
     private static function build(string $class): object
@@ -59,7 +68,10 @@ final class Container
                 self::get(SubtitleParserService::class),
             ),
             DeepTranslatorProvider::class => new DeepTranslatorProvider(self::get(ProcessRunner::class)),
-            TranslationBatchService::class => new TranslationBatchService(self::get(DeepTranslatorProvider::class)),
+            OllamaTranslationProvider::class => new OllamaTranslationProvider(self::get(ProcessRunner::class)),
+            OpenAICompatibleProvider::class => new OpenAICompatibleProvider(),
+            TranslationProviderInterface::class => self::resolveTranslationProvider(),
+            TranslationBatchService::class => new TranslationBatchService(self::get(TranslationProviderInterface::class)),
             SubtitleTranslatorService::class => new SubtitleTranslatorService(
                 self::get(SubtitleParserService::class),
                 self::get(SubtitleValidatorService::class),
@@ -73,6 +85,20 @@ final class Container
                 self::get(SubtitleTranslatorService::class),
             ),
             default => throw new \InvalidArgumentException("Servicio no registrado: {$class}"),
+        };
+    }
+
+    /**
+     * Resuelve el proveedor de traducción según config('translation.provider').
+     */
+    private static function resolveTranslationProvider(): TranslationProviderInterface
+    {
+        $provider = (string) config('translation.provider', 'deep-translator');
+
+        return match ($provider) {
+            'ollama' => self::get(OllamaTranslationProvider::class),
+            'openai', 'openai-compatible' => self::get(OpenAICompatibleProvider::class),
+            default => self::get(DeepTranslatorProvider::class),
         };
     }
 }

@@ -418,7 +418,36 @@ final class Application
     private function translate(MediaFile $media, \App\Models\SubtitleTrack $track, string $output): void
     {
         try {
-            $result = $this->extractor->extractAndTranslate($media, $track);
+            // Fase 1: extraer / leer el SRT de origen (spinner)
+            $srt = spin(
+                fn () => $this->extractor->getSrtContent($media, $track),
+                'Extrayendo subtítulo...'
+            );
+
+            // Contar bloques para dimensionar la barra de progreso
+            $parser = Container::get(\App\Services\Subtitle\SubtitleParserService::class);
+            $total = count($parser->parse($srt));
+
+            // Fase 2: traducir por lotes con barra de progreso visible
+            $provider = Container::get(\App\Services\Translation\TranslationProviderInterface::class);
+            $bar = progress(
+                'Traduciendo ' . $total . ' bloques con ' . $provider->name() . '...',
+                $total
+            );
+            $bar->start();
+
+            $lastDone = 0;
+            $result = $this->extractor->saveTranslated(
+                $media,
+                $track,
+                $srt,
+                function (int $done) use ($bar, &$lastDone): void {
+                    $bar->advance($done - $lastDone);
+                    $lastDone = $done;
+                }
+            );
+
+            $bar->finish();
 
             note('✓ Traducción completada');
             note('Archivo generado: ' . $result['outputPath']);

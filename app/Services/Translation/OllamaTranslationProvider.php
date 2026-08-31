@@ -113,6 +113,8 @@ Rules:
 - Keep names, numbers and symbols unchanged.
 - Use natural, conversational language suitable for subtitles.
 - Preserve line breaks exactly as in the source.
+- If the text contains numbered markers like <<1>>, <<2>>, translate only the text after each marker
+  and keep the markers EXACTLY unchanged (they split the result; never translate or merge them).
 
 Source text:
 ---

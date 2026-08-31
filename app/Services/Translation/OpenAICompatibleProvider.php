@@ -65,7 +65,10 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
                     'content' => "You are a professional subtitle translator. Translate the user's subtitle text to {$target}. "
                         . 'Rules: translate ONLY the text without explanations; do NOT translate proper names '
                         . '(people, places, brands); keep names, numbers and symbols unchanged; use natural, '
-                        . 'conversational language; preserve line breaks exactly as in the source.',
+                        . 'conversational language; preserve line breaks exactly as in the source. '
+                        . 'If the input contains numbered markers like <<1>>, <<2>>, translate only the text '
+                        . 'after each marker and keep the markers themselves EXACTLY unchanged (they are used '
+                        . 'to split the result, do not translate or merge them).',
                 ],
                 ['role' => 'user', 'content' => $text],
             ],

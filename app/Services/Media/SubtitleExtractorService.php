@@ -100,26 +100,38 @@ final class SubtitleExtractorService
     }
 
     /**
-     * Flujo completo para una pista: extraer (si interna) y traducir al español.
-     *
-     * @return array{outputPath:string, blocks:int, task:ProcessingTask}
+     * Fase 1: obtiene el contenido SRT de una pista (interna o externa).
+     * Convierte ASS/VTT a SRT cuando es necesario.
      */
-    public function extractAndTranslate(MediaFile $media, SubtitleTrack $track): array
+    public function getSrtContent(MediaFile $media, SubtitleTrack $track): string
     {
-        // 1. Obtener el contenido SRT de la pista
         if ($track->sourceType === SubtitleTrack::SOURCE_EXTERNAL) {
             $srt = $this->readExternal($track);
 
-            // Convertir a SRT si no lo es (ASS/VTT)
             $ext = strtolower(pathinfo((string) $track->path, PATHINFO_EXTENSION));
             if (in_array($ext, ['ass', 'ssa', 'vtt'], true)) {
                 $srt = $this->convertContentToSrt($track->path);
             }
-        } else {
-            $srt = $this->extractInternal($media, $track);
+
+            return $srt;
         }
 
-        // 2. Nombre de salida (junto al video, nunca sobrescribe nada existente)
+        return $this->extractInternal($media, $track);
+    }
+
+    /**
+     * Fase 2: traduce un SRT ya obtenido, valida y guarda junto al video,
+     * registrando la tarea y la pista generada. Reporta progreso por bloque.
+     *
+     * @param  callable(int,int):void|null  $onProgress  fn($done, $total)
+     * @return array{outputPath:string, blocks:int}
+     */
+    public function saveTranslated(
+        MediaFile $media,
+        SubtitleTrack $track,
+        string $srt,
+        ?callable $onProgress = null,
+    ): array {
         $flags = ['sdh' => $track->isSdh, 'forced' => $track->isForced];
         $outputPath = $this->filenames->pathForMedia($media, (string) config('translation.target_language', 'es'), $flags);
 
@@ -127,10 +139,9 @@ final class SubtitleExtractorService
             throw new RuntimeException("Ya existe el archivo de salida: {$outputPath}");
         }
 
-        // 3. Traducir
-        $result = $this->translator->translateSrt($media, $track, $srt, $outputPath);
+        $result = $this->translator->translateSrt($media, $track, $srt, $outputPath, $onProgress);
 
-        // 4. Registrar la pista generada
+        // Registrar la pista generada
         $generated = new SubtitleTrack();
         $generated->mediaFileId = $media->id;
         $generated->sourceType = SubtitleTrack::SOURCE_GENERATED;
@@ -145,7 +156,22 @@ final class SubtitleExtractorService
         $media->status = MediaFile::STATUS_PROCESSED;
         $media->save();
 
-        return $result + ['task' => $this->lastTask($media)];
+        return $result;
+    }
+
+    /**
+     * Flujo completo para una pista: extraer (si interna) y traducir al español.
+     *
+     * @param  callable(int,int):void|null  $onProgress  fn($done, $total)
+     * @return array{outputPath:string, blocks:int}
+     */
+    public function extractAndTranslate(MediaFile $media, SubtitleTrack $track, ?callable $onProgress = null): array
+    {
+        // 1. Obtener el contenido SRT de la pista
+        $srt = $this->getSrtContent($media, $track);
+
+        // 2. Traducir, validar y guardar
+        return $this->saveTranslated($media, $track, $srt, $onProgress);
     }
 
     private function convertContentToSrt(string $path): string

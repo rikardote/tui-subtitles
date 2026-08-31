@@ -8,17 +8,25 @@ use RuntimeException;
 
 /**
  * Procesa bloques de subtítulos por lotes con reintentos.
+ *
+ * Optimización: cada lote (config: translation.batch_size) se traduce en
+ * UNA sola llamada al proveedor usando marcadores <<N>>, en vez de una
+ * llamada por bloque. Si el proveedor no preserva los marcadores, se
+ * hace fallback bloque a bloque.
+ *
  * Preserva timestamps: solo traduce el contenido textual.
  */
 final class TranslationBatchService
 {
+    private const MARKER = '<<%d>>';
+
     public function __construct(
         private readonly TranslationProviderInterface $provider,
     ) {
     }
 
     /**
-     * Traduce el texto de un bloque SRT.
+     * Traduce el texto de un bloque SRT (llamada individual).
      *
      * @param  array{index:int, start:string, end:string, text:string}  $block
      * @return array{index:int, start:string, end:string, text:string}
@@ -27,10 +35,9 @@ final class TranslationBatchService
      */
     public function translateBlock(array $block, string $targetLanguage): array
     {
-        $text = $block['text'];
+        $text = trim($block['text']);
 
-        // No traducir bloques vacíos ni puramente numéricos/simbólicos
-        if (trim($text) === '') {
+        if ($text === '') {
             return $block;
         }
 
@@ -41,7 +48,6 @@ final class TranslationBatchService
             try {
                 $translated = $this->provider->translate($text, $targetLanguage);
 
-                // Conserva el texto original si el proveedor devolvió algo vacío
                 if (trim($translated) === '') {
                     throw new RuntimeException('Traducción vacía.');
                 }
@@ -69,24 +75,133 @@ final class TranslationBatchService
     }
 
     /**
-     * Traduce múltiples bloques con reporte de progreso.
+     * Traduce múltiples bloques agrupados en lotes (una llamada por lote).
      *
      * @param  array<int, array>  $blocks
-     * @param  callable(int, int):void|null  $onProgress  fn($done, $total)
+     * @param  callable(int, int):void|null  $onProgress  fn($done, $total) por bloque
      * @return array<int, array>
      */
     public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null): array
     {
+        $batchSize = max(1, (int) config('translation.batch_size', 50));
         $result = [];
         $total = count($blocks);
         $done = 0;
 
-        foreach ($blocks as $block) {
-            $result[] = $this->translateBlock($block, $targetLanguage);
-            $done++;
+        foreach (array_chunk($blocks, $batchSize) as $batch) {
+            $translatedBatch = $this->translateBatch($batch, $targetLanguage);
+
+            foreach ($translatedBatch as $block) {
+                $result[] = $block;
+            }
+
+            $done += count($translatedBatch);
             $onProgress?->__invoke($done, $total);
         }
 
         return $result;
+    }
+
+    /**
+     * Traduce un lote en una sola llamada al proveedor.
+     * Si el proveedor no preserva los marcadores, hace fallback individual.
+     *
+     * @param  array<int, array>  $blocks
+     * @return array<int, array>
+     */
+    private function translateBatch(array $blocks, string $targetLanguage): array
+    {
+        // Bloques vacíos se devuelven tal cual
+        $nonEmpty = array_values(array_filter(
+            $blocks,
+            fn ($b) => trim($b['text']) !== ''
+        ));
+
+        if ($nonEmpty === []) {
+            return $blocks;
+        }
+
+        // Construir el lote con marcadores
+        $payload = [];
+        foreach ($nonEmpty as $i => $block) {
+            $payload[] = sprintf(self::MARKER, $i + 1) . "\n" . $block['text'];
+        }
+        $batchText = implode("\n\n", $payload);
+
+        $maxRetries = (int) config('translation.max_retries', 3);
+        $lastError = null;
+
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $response = $this->provider->translate($batchText, $targetLanguage);
+                $parsed = $this->parseMarkers($response, count($nonEmpty));
+
+                if ($parsed !== null) {
+                    // Reconstruir con timestamps originales
+                    $out = [];
+                    foreach ($nonEmpty as $i => $block) {
+                        $out[] = [
+                            'index' => $block['index'],
+                            'start' => $block['start'],
+                            'end' => $block['end'],
+                            'text' => $parsed[$i],
+                        ];
+                    }
+
+                    return $out;
+                }
+
+                // El proveedor no preservó los marcadores → fallback individual
+                return array_map(
+                    fn ($b) => $this->translateBlock($b, $targetLanguage),
+                    $blocks
+                );
+            } catch (\Throwable $e) {
+                $lastError = $e;
+                usleep(500_000 * $attempt);
+            }
+        }
+
+        // Fallo total del lote → intentar individual; si también falla, propagar
+        $out = [];
+        foreach ($blocks as $block) {
+            $out[] = $this->translateBlock($block, $targetLanguage);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parsea la respuesta del proveedor con marcadores <<N>>.
+     *
+     * @return string[]|null Textos en orden, o null si el formato no coincide.
+     */
+    private function parseMarkers(string $response, int $expected): ?array
+    {
+        $response = trim($response);
+
+        // Busca todos los marcadores <<N>>...<<N+1>> separando los textos
+        if (! preg_match_all('/<<(\d+)>>\s*(.*?)(?=<<\d+>>|$)/s', $response, $matches, PREG_SET_ORDER)) {
+            return null;
+        }
+
+        $texts = [];
+        $lastIndex = 0;
+
+        foreach ($matches as $match) {
+            $num = (int) $match[1];
+            // Los índices deben ser consecutivos empezando en 1
+            if ($num !== $lastIndex + 1) {
+                return null;
+            }
+            $texts[] = trim($match[2]);
+            $lastIndex = $num;
+        }
+
+        if (count($texts) !== $expected) {
+            return null;
+        }
+
+        return $texts;
     }
 }

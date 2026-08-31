@@ -33,7 +33,7 @@ final class SubtitleTranslatorService
      * @param  SubtitleTrack|null   $track     Pista de origen (opcional).
      * @param  string               $inputSrt  Contenido SRT de entrada.
      * @param  string               $outputPath Ruta del SRT de salida.
-     * @param  callable(int,int):void|null $onProgress
+     * @param  callable(int,int):void|null $onProgress fn($done, $total) por bloque
      * @return array{outputPath:string, blocks:int}
      */
     public function translateSrt(

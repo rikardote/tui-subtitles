@@ -84,7 +84,7 @@ final class TranslationBatchService
      */
     public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null, ?callable $onBatch = null): array
     {
-        $batchSize = max(1, (int) config('translation.batch_size', 50));
+        $batchSize = $this->resolveBatchSize();
         $result = [];
         $total = count($blocks);
         $done = 0;
@@ -102,6 +102,24 @@ final class TranslationBatchService
         }
 
         return $result;
+    }
+
+    /**
+     * Tamaño de lote según el proveedor:
+     *  - APIs en la nube (DeepSeek, Muse Spark, OpenAI): lotes grandes (el tiempo
+     *    está dominado por el overhead de la llamada, no por los tokens).
+     *  - Ollama local (GPU débil): lotes pequeños para no saturar la generación.
+     */
+    private function resolveBatchSize(): int
+    {
+        $configured = max(1, (int) config('translation.batch_size', 50));
+        $provider = (string) config('translation.provider', 'deep-translator');
+
+        if ($provider === 'ollama') {
+            return min($configured, 15);
+        }
+
+        return $configured;
     }
 
     /**

@@ -17,7 +17,7 @@ return [
     // La TUI nunca permitirá navegar fuera de estas rutas.
     'media_paths' => [
         'Movies' => env('MEDIA_PATH_MOVIES', '/media/Movies'),
-        'TV Shows' => env('MEDIA_PATH_TV', '/media/TV'),
+        'TvShows' => env('MEDIA_PATH_TV', '/media/TvShows'),
     ],
 
     // Extensiones de video soportadas para escaneo.

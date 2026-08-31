@@ -72,6 +72,10 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
                 ],
                 ['role' => 'user', 'content' => $text],
             ],
+            // Muse Spark y otros modelos de razonamiento necesitan: esfuerzo mínimo
+            // (evita gastar tokens "pensando") y un límite generoso de salida.
+            'reasoning_effort' => 'minimal',
+            'max_tokens' => (int) (strlen($text) * 2.5) + 200,
         ], JSON_UNESCAPED_UNICODE);
 
         $context = stream_context_create([

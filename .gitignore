@@ -1,0 +1,9 @@
+/vendor/
+/.env
+/storage/database.sqlite
+/storage/database.sqlite-*
+/storage/logs/*.log
+/storage/test-library/
+*.es.srt
+*.tmp
+.DS_Store

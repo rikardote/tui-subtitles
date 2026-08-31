@@ -1,0 +1,76 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Escaneo automático no interactivo (para cron / Laravel Scheduler futuro).
+ *
+ * Uso:
+ *   ./bin/scan [--analyze]
+ *
+ * --analyze  Analiza con FFprobe los archivos nuevos/modificados
+ *            (costoso; por defecto solo registra).
+ *
+ * Se recomienda cron:
+ *   (cada 15 minutos) /ruta/a/bin/scan >> /ruta/a/storage/logs/scan.log 2>&1
+ */
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use App\Models\MediaFile;
+use App\Services\Container;
+use App\Services\Library\MediaScannerService;
+use App\Services\Subtitle\SubtitleAnalyzerService;
+
+$analyze = in_array('--analyze', $argv, true);
+
+try {
+    $scanner = Container::get(MediaScannerService::class);
+    $analyzer = Container::get(SubtitleAnalyzerService::class);
+
+    $log = fn (string $msg) => print '[' . date('Y-m-d H:i:s') . '] ' . $msg . PHP_EOL;
+
+    $log('Escaneo automático iniciado' . ($analyze ? ' (con análisis FFprobe)' : ''));
+
+    $results = $scanner->scanAll();
+
+    $newTotal = 0;
+    foreach ($results as $result) {
+        $log(sprintf(
+            '  %s: %d archivos | nuevos: %d | modificados: %d | sin cambios: %d',
+            $result['library'],
+            $result['total'],
+            $result['new'],
+            $result['modified'],
+            $result['unchanged']
+        ));
+        $newTotal += $result['new'] + $result['modified'];
+    }
+
+    if ($analyze && $newTotal > 0) {
+        $log('Analizando archivos nuevos/modificados...');
+
+        foreach ($results as $result) {
+            foreach ($result['registered'] as $media) {
+                try {
+                    $analyzer->analyze($media);
+                    $media->status = MediaFile::STATUS_ANALYZED;
+                    $media->lastAnalyzedAt = gmdate('Y-m-d H:i:s');
+                    $media->save();
+                    $log('  ✓ ' . $media->filename);
+                } catch (Throwable $e) {
+                    $media->status = MediaFile::STATUS_ERROR;
+                    $media->save();
+                    $log('  ✗ ' . $media->filename . ' — ' . $e->getMessage());
+                }
+            }
+        }
+    }
+
+    $log('Escaneo completado.');
+    exit(0);
+} catch (Throwable $e) {
+    fwrite(STDERR, '[ERROR] ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}

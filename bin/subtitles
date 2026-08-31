@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Subtitle Processor — TUI
+ *
+ * Uso:
+ *   ./bin/subtitles
+ */
+
+$autoload = __DIR__ . '/../vendor/autoload.php';
+
+if (! file_exists($autoload)) {
+    fwrite(STDERR, "Falta vendor/. Ejecute: composer install\n");
+    exit(1);
+}
+
+require $autoload;
+
+use App\Tui\Application;
+
+try {
+    Application::boot()->run();
+} catch (Throwable $e) {
+    fwrite(STDERR, "\n[ERROR] " . $e->getMessage() . "\n");
+    fwrite(STDERR, $e->getTraceAsString() . "\n");
+    exit(1);
+}

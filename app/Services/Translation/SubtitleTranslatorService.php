@@ -78,14 +78,21 @@ final class SubtitleTranslatorService
                 fn (array $b) => ! isset($already[$b['index']])
             ));
 
+            // El progreso reportado a la TUI debe ser ABSOLUTO:
+            // offset del checkpoint + avance de los pendientes.
+            $offset = count($already);
+            $totalBlocks = count($blocks);
+
             if ($already !== [] && $onProgress !== null) {
-                $onProgress(count($already), count($blocks));
+                $onProgress($offset, $totalBlocks);
             }
 
             $translated = $this->batch->translateBlocks(
                 $pending,
                 $target,
-                $onProgress,
+                function (int $done, int $total) use ($onProgress, $offset, $totalBlocks): void {
+                    $onProgress?->__invoke($offset + $done, $totalBlocks);
+                },
                 // Guarda el progreso acumulado tras cada lote (reanudable)
                 function (array $accumulated) use ($already, $checkpointPath): void {
                     $merged = $this->mergeByIndex($already, $accumulated);

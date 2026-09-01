@@ -714,7 +714,7 @@ final class Application
         $providers = [
             'deep-translator' => 'deep-translator (Google, gratuito, sin API key)',
             'deepseek' => 'DeepSeek (deepseek-chat / deepseek-reasoner)',
-            'meta-muse' => 'Meta Muse Spark (meta/muse-spark-1.2-contributor)',
+            'meta-muse' => 'Meta Muse Spark (muse-spark-1.2)',
             'ollama' => 'Ollama (LLM local, gratuito, offline)',
             'openai' => 'OpenAI / API compatible (GPT, Groq, OpenRouter...)',
         ];
@@ -739,7 +739,7 @@ final class Application
             );
         } elseif ($choice === 'meta-muse') {
             $model = \Laravel\Prompts\text(
-                'Modelo Meta Muse Spark (p.ej. meta/muse-spark-1.2-contributor):',
+                'Modelo Meta Muse Spark (p.ej. muse-spark-1.2):',
                 default: (string) config('translation.meta_muse_model')
             );
         }

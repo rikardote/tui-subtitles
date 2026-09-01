@@ -39,6 +39,15 @@ final class ProcessingTask
     public string $createdAt = '';
     public string $updatedAt = '';
 
+    public static function findById(int $id): ?self
+    {
+        $stmt = Database::pdo()->prepare('SELECT * FROM processing_tasks WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        return $row ? self::fromRow($row) : null;
+    }
+
     /** @return self[] */
     public static function recent(int $limit = 20): array
     {
@@ -59,6 +68,10 @@ final class ProcessingTask
     {
         $now = Database::now();
 
+        if ($this->subtitleTrackId !== null && SubtitleTrack::findById($this->subtitleTrackId) === null) {
+            $this->subtitleTrackId = null;
+        }
+
         if ($this->id > 0) {
             $sql = 'UPDATE processing_tasks SET
                         media_file_id = ?, subtitle_track_id = ?,
@@ -77,7 +90,9 @@ final class ProcessingTask
                 $now, $this->id,
             ]);
         } else {
-            $this->uuid ??= self::generateUuid();
+            if ($this->uuid === '') {
+                $this->uuid = self::generateUuid();
+            }
             $this->createdAt = $now;
             $this->updatedAt = $now;
 
@@ -121,7 +136,7 @@ final class ProcessingTask
         };
     }
 
-    private static function fromRow(array $row): self
+    public static function fromRow(array $row): self
     {
         $t = new self();
         $t->id = (int) $row['id'];

@@ -57,9 +57,10 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
             'model' => $model,
             'prompt' => $prompt,
             'stream' => false,
+            'think' => false,
             'options' => [
                 'temperature' => 0.2,
-                'num_predict' => (int) (strlen($text) * 1.6) + 50,
+                'num_predict' => (int) (strlen($text) * 2.5) + 200,
             ],
         ], JSON_UNESCAPED_UNICODE);
 
@@ -68,7 +69,7 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
                 'method' => 'POST',
                 'header' => "Content-Type: application/json\r\n",
                 'content' => $payload,
-                'timeout' => (int) config('translation.timeout_seconds', 30),
+                'timeout' => (int) config('translation.timeout_seconds', 300),
                 'ignore_errors' => true,
             ],
         ]);
@@ -91,7 +92,9 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
 
         $translated = trim((string) ($data['response'] ?? ''));
 
-        // Quita posibles comillas envolventes del LLM
+        // Quita posibles bloques de pensamiento o delimitadores markdown envolventes
+        $translated = preg_replace('/^---+\s*/m', '', $translated) ?? $translated;
+        $translated = preg_replace('/---+\s*$/m', '', $translated) ?? $translated;
         $translated = trim($translated, "\"'\n\r ");
 
         if ($translated === '') {
@@ -167,22 +170,16 @@ final class OllamaTranslationProvider implements TranslationProviderInterface
 You are a professional subtitle translator. Translate the following subtitle text to {$target}.
 
 Rules:
-- Translate ONLY the text. Do not add explanations, notes or comments.
+- Output ONLY the translated text. Never add explanations, notes, labels or comments.
 - Do NOT translate proper names (people, places, brands).
 - Keep names, numbers and symbols unchanged.
 - Use natural, conversational language suitable for subtitles.
 - Preserve line breaks exactly as in the source.
-- If the text contains numbered markers like <<1>>, <<2>>, translate only the text after each marker
-  and keep the markers EXACTLY unchanged (they split the result; never translate or merge them).
-- Each marker contains the text to translate under the label "SUBTITLE TO TRANSLATE".
-- If a marker has a "PREVIOUS SUBTITLE" section, use it ONLY as context to translate naturally
-  (the subtitle may continue a previous sentence); never translate or repeat the context in your output —
-  output ONLY the translated subtitle text.
+- If the text contains numbered markers like <<1>>, <<2>>, translate the text under each marker and keep the markers EXACTLY unchanged (do not translate, remove or merge markers).
+- If there is a [Context: ...] line, use it ONLY as conversational context to translate naturally; never translate or repeat the context in your output.
 
 Source text:
----
 {$text}
----
 
 Translation:
 PROMPT;

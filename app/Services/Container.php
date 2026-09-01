@@ -106,6 +106,14 @@ final class Container
                 self::get(SubtitleTranslatorService::class),
             ),
             SubtitleRemovalService::class => new SubtitleRemovalService(),
+            \App\Services\Queue\QueueService::class => new \App\Services\Queue\QueueService(),
+            \App\Services\Queue\TaskWorker::class => new \App\Services\Queue\TaskWorker(
+                self::get(\App\Services\Queue\QueueService::class),
+                self::get(SubtitleExtractorService::class),
+                self::get(SubtitleTranslatorService::class),
+                self::get(SubtitleFilenameService::class),
+                self::get(SubtitleAnalyzerService::class),
+            ),
             JellyfinApiClient::class => new JellyfinApiClient(
                 (string) config('jellyfin.url', ''),
                 (string) config('jellyfin.api_key', ''),

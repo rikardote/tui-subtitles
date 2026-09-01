@@ -44,22 +44,6 @@ final class SubtitleValidatorService
             if ($end <= $start) {
                 $errors[] = sprintf('Timestamp final menor o igual al inicial en el bloque %d.', $block['index']);
             }
-
-            if ($prevEnd !== null && $start < $prevEnd) {
-                // Solapamiento leve permitido (común en SRT); solo avisamos si es grave
-                if ($start < $prevEnd - 1.0) {
-                    $errors[] = sprintf('Bloque %d solapa con el anterior.', $block['index']);
-                }
-            }
-
-            $prevEnd = $end;
-        }
-
-        // 3. Texto no vacío
-        foreach ($blocks as $block) {
-            if (trim($block['text']) === '') {
-                $errors[] = sprintf('El bloque %d tiene texto vacío.', $block['index']);
-            }
         }
 
         return [

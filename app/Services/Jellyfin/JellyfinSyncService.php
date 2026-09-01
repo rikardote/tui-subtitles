@@ -112,7 +112,7 @@ final class JellyfinSyncService
         if ($needsAnalyze) {
             $this->analyzer->analyze($media);
             $media->status = MediaFile::STATUS_ANALYZED;
-            $media->lastAnalyzedAt = gmdate('Y-m-d H:i:s');
+            $media->lastAnalyzedAt = \App\Storage\Database::now();
             $media->save();
         }
 

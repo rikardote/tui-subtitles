@@ -60,8 +60,8 @@ final class MediaChangeDetectorService
 
         if ($existing !== null) {
             $existing->fileSize = $item['size'];
-            $existing->lastModifiedAt = gmdate('Y-m-d H:i:s', $item['mtime']);
-            $existing->updatedAt = gmdate('Y-m-d H:i:s');
+            $existing->lastModifiedAt = date('Y-m-d H:i:s', $item['mtime']);
+            $existing->updatedAt = \App\Storage\Database::now();
             $existing->save();
 
             return $existing;
@@ -73,7 +73,7 @@ final class MediaChangeDetectorService
         $file->filename = basename($item['path']);
         $file->extension = strtolower(pathinfo($item['path'], PATHINFO_EXTENSION));
         $file->fileSize = $item['size'];
-        $file->lastModifiedAt = gmdate('Y-m-d H:i:s', $item['mtime']);
+        $file->lastModifiedAt = date('Y-m-d H:i:s', $item['mtime']);
         $file->status = MediaFile::STATUS_PENDING;
         $file->save();
 

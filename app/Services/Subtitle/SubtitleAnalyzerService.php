@@ -132,13 +132,25 @@ final class SubtitleAnalyzerService
                 continue;
             }
 
-            // Debe compartir el nombre base del video
             $entryBase = pathinfo($entry, PATHINFO_FILENAME);
-            if (! str_starts_with($entryBase, $base . '.')) {
+            $baseLower = mb_strtolower($base);
+            $entryBaseLower = mb_strtolower($entryBase);
+
+            // Debe coincidir con el nombre base del video (insensible a mayúsculas/minúsculas):
+            // Caso 1: Mismo nombre exacto (Movie.srt)
+            // Caso 2: Con prefijo y punto (Movie.es.srt, Movie.eng.sdh.srt)
+            // Caso 3: Con guion bajo, espacio o guion (Movie_es.srt, Movie Spanish.srt, Movie-es.srt)
+            $isExactMatch = ($entryBaseLower === $baseLower);
+            $hasPrefix = str_starts_with($entryBaseLower, $baseLower . '.')
+                      || str_starts_with($entryBaseLower, $baseLower . '_')
+                      || str_starts_with($entryBaseLower, $baseLower . ' ')
+                      || str_starts_with($entryBaseLower, $baseLower . '-');
+
+            if (! $isExactMatch && ! $hasPrefix) {
                 continue;
             }
 
-            $suffix = substr($entryBase, strlen($base) + 1); // "en", "es", "es.forced"...
+            $suffix = $isExactMatch ? '' : substr($entryBase, strlen($base) + 1);
             $parts = explode('.', $suffix);
             $langCode = strtolower($parts[0] ?? '');
 
@@ -148,32 +160,38 @@ final class SubtitleAnalyzerService
             $track->path = $dir . DIRECTORY_SEPARATOR . $entry;
             $track->codec = $ext;
             $track->title = $entry;
-            $track->isTextBased = true; // srt/ass/ssa/vtt son texto
+            $track->isTextBased = true;
             $track->language = $langCode !== '' ? $langCode : null;
             $track->languageDetected = $this->language->detectFromMetadata($langCode, null)
                 ?? $this->language->detectFromTitle($entryBase);
             $track->isSdh = str_contains($suffix, 'sdh') || stripos($entry, 'sdh') !== false;
             $track->isForced = str_contains($suffix, 'forced');
 
-            // Si el archivo externo está en el idioma destino (p.ej. .es.srt),
-            // se marca como GENERADO: probablemente lo creó la propia aplicación
-            // (o el usuario lo descargó; en ambos casos es descartable).
-            $targetLang = (string) config('translation.target_language', 'es');
-            $trackLang = $track->languageDetected ?? $track->language;
-            if (in_array($trackLang, [$targetLang, self::iso2($targetLang)], true)) {
-                $track->sourceType = SubtitleTrack::SOURCE_GENERATED;
-            }
-
-            // Nivel 3 por contenido
-            if ($track->languageDetected === null && is_readable($track->path)) {
+            // Nivel 3: Detección por contenido en archivo
+            if (is_readable($track->path)) {
                 $sample = $this->parser->extractSample((string) $track->path);
                 if ($sample !== null) {
                     $detected = $this->language->detectFromContent($sample);
                     if ($detected !== null) {
                         $track->languageDetected = $detected;
-                        $track->languageConfidence = 0.6;
+                        $track->languageConfidence = 0.8;
                     }
                 }
+            }
+
+            // Si tiene el mismo nombre exacto que el video (ej. Movie.srt) y no se detectó otro idioma explícito,
+            // se asume que es el subtítulo en español / traducido existente.
+            if ($isExactMatch && $track->languageDetected === null) {
+                $track->languageDetected = 'spa';
+                $track->language = 'es';
+                $track->languageConfidence = 0.9;
+            }
+
+            // Si está en español, marcarlo como generado / sincronizado
+            $targetLang = (string) config('translation.target_language', 'es');
+            $trackLang = $track->languageDetected ?? $track->language;
+            if (in_array($trackLang, [$targetLang, self::iso2($targetLang), 'spa', 'es'], true)) {
+                $track->sourceType = SubtitleTrack::SOURCE_GENERATED;
             }
 
             $tracks[] = $track;

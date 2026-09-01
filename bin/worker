@@ -1,0 +1,23 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoload = __DIR__ . '/../vendor/autoload.php';
+if (! is_file($autoload)) {
+    fwrite(STDERR, "Error: Ejecuta 'composer install' antes de usar esta herramienta.\n");
+    exit(1);
+}
+
+require $autoload;
+
+use App\Services\Container;
+use App\Services\Queue\TaskWorker;
+
+echo "=== Subtitle Queue Worker Iniciado ===\n";
+echo "Escuchando tareas de traducción en segundo plano...\n";
+
+/** @var TaskWorker $worker */
+$worker = Container::get(TaskWorker::class);
+
+$worker->start();

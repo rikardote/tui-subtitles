@@ -61,21 +61,35 @@ final class SubtitleParserService
             while ($i < $count) {
                 $line = rtrim($lines[$i]);
                 if ($line === '') {
-                    // termina el bloque si ya hay texto
                     if ($textLines !== []) {
+                        break;
+                    }
+                    // Si no hay texto acumulado, mirar si la siguiente línea no vacía es el índice del próximo bloque
+                    $peek = $i + 1;
+                    while ($peek < $count && trim($lines[$peek]) === '') {
+                        $peek++;
+                    }
+                    if ($peek < $count && ctype_digit(trim($lines[$peek]))) {
+                        // El bloque actual no tiene texto (vacío)
                         break;
                     }
                     $i++;
                     continue;
                 }
+                // Si la línea es numérica y la siguiente contiene '-->', estamos ante el próximo bloque
+                if (ctype_digit(trim($line)) && isset($lines[$i + 1]) && str_contains($lines[$i + 1], '-->')) {
+                    break;
+                }
                 $textLines[] = $line;
                 $i++;
             }
 
-            $text = implode("\n", $textLines);
-            if ($text === '') {
-                continue;
-            }
+            $text = trim(implode("\n", $textLines));
+            // Limpiar etiquetas de fuentes y estilos ASS (p. ej. <font ...>, {\an8})
+            $text = preg_replace('/<font[^>]*>/i', '', $text) ?? $text;
+            $text = str_ireplace('</font>', '', $text);
+            $text = preg_replace('/\{[^\}]+\}/', '', $text) ?? $text;
+            $text = trim($text);
 
             [$startTime, $endTime] = $this->splitTimestamps($start);
 
@@ -83,7 +97,7 @@ final class SubtitleParserService
                 'index' => $index,
                 'start' => $startTime,
                 'end' => $endTime,
-                'text' => $text,
+                'text' => $text !== '' ? $text : '...',
             ];
         }
 
@@ -98,11 +112,19 @@ final class SubtitleParserService
     public function build(array $blocks): string
     {
         $out = '';
+        $i = 1;
 
         foreach ($blocks as $block) {
-            $out .= $block['index'] . "\n";
+            $index = $block['index'] ?? $i;
+            $text = trim($block['text'] ?? '');
+            if ($text === '') {
+                $text = '...';
+            }
+
+            $out .= $index . "\n";
             $out .= $block['start'] . ' --> ' . $block['end'] . "\n";
-            $out .= $block['text'] . "\n\n";
+            $out .= $text . "\n\n";
+            $i++;
         }
 
         return $out;

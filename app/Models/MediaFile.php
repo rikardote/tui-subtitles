@@ -143,8 +143,37 @@ final class MediaFile
     {
         foreach ($this->tracks() as $track) {
             $lang = $track->languageDetected ?? $track->language;
-            if (in_array($lang, ['spa', 'es'], true)) {
+            if (in_array($lang, ['spa', 'es', 'spanish', 'castellano', 'latino'], true)) {
                 return true;
+            }
+        }
+
+        // Comprobación directa en disco de archivo compañero (ej. Movie.srt, Movie.es.srt, sensible/insensible a mayúsculas)
+        $dir = $this->directory();
+        $baseLower = mb_strtolower(pathinfo($this->filename, PATHINFO_FILENAME));
+        $extensions = ['srt', 'ass', 'ssa', 'vtt'];
+
+        $files = @scandir($dir);
+        if ($files !== false) {
+            foreach ($files as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
+                if (! in_array($ext, $extensions, true)) {
+                    continue;
+                }
+                $entryBaseLower = mb_strtolower(pathinfo($entry, PATHINFO_FILENAME));
+                if ($entryBaseLower === $baseLower
+                    || str_starts_with($entryBaseLower, $baseLower . '.es')
+                    || str_starts_with($entryBaseLower, $baseLower . '.spa')
+                    || str_starts_with($entryBaseLower, $baseLower . '.spanish')
+                    || str_starts_with($entryBaseLower, $baseLower . '.latino')
+                    || str_starts_with($entryBaseLower, $baseLower . '_es')
+                    || str_starts_with($entryBaseLower, $baseLower . '-es')
+                ) {
+                    return true;
+                }
             }
         }
 

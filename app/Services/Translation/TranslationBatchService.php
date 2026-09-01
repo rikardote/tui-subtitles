@@ -38,7 +38,12 @@ final class TranslationBatchService
         $text = trim($block['text']);
 
         if ($text === '') {
-            return $block;
+            return [
+                'index' => $block['index'],
+                'start' => $block['start'],
+                'end' => $block['end'],
+                'text' => '...',
+            ];
         }
 
         $maxRetries = (int) config('translation.max_retries', 3);
@@ -210,11 +215,10 @@ final class TranslationBatchService
             $entry = sprintf(self::MARKER, $i + 1) . "\n";
 
             if ($useContext && $i === 0 && $prevContext !== null) {
-                $entry .= "PREVIOUS SUBTITLE (context only, do not translate):\n"
-                    . $prevContext . "\n";
+                $entry .= "[Context: previous line was \"{$prevContext}\"]\n";
             }
 
-            $entry .= "SUBTITLE TO TRANSLATE:\n" . $block['text'];
+            $entry .= trim($block['text']);
             $payload[] = $entry;
         }
         $batchText = implode("\n\n", $payload);
@@ -236,11 +240,15 @@ final class TranslationBatchService
                     // Reconstruir con timestamps originales
                     $out = [];
                     foreach ($nonEmpty as $i => $block) {
+                        $translatedText = trim($parsed[$i] ?? '');
+                        if ($translatedText === '') {
+                            $translatedText = trim($block['text']) !== '' ? $block['text'] : '...';
+                        }
                         $out[] = [
                             'index' => $block['index'],
                             'start' => $block['start'],
                             'end' => $block['end'],
-                            'text' => $parsed[$i],
+                            'text' => $translatedText,
                         ];
                     }
 
@@ -301,7 +309,8 @@ final class TranslationBatchService
             if ($num !== $lastIndex + 1) {
                 return null;
             }
-            $texts[] = trim($match[2]);
+            $clean = $this->cleanSegment($match[2]);
+            $texts[] = $clean;
             $lastIndex = $num;
         }
 
@@ -317,5 +326,19 @@ final class TranslationBatchService
         }
 
         return $texts;
+    }
+
+    /**
+     * Limpia un segmento traducido eliminando etiquetas del prompt que el LLM pudiera haber repetido.
+     */
+    private function cleanSegment(string $text): string
+    {
+        $text = trim($text);
+
+        // Elimina cabeceras residuales de subtítulo o prompt repetidas por el modelo
+        $text = preg_replace('/^(?:SUBTITLE\s+TO\s+TRANSLATE|SUBT[IÍ]TULO\s+A\s+TRADUCIR|TRANSLATION|TRADUCCI[OÓ]N|PREVIOUS\s+SUBTITLE[^\n]*|\[Context[^\n]*\])\s*:\s*/im', '', $text) ?? $text;
+        $text = preg_replace('/^(?:---|---|\*\*\*)\s*/m', '', $text) ?? $text;
+
+        return trim($text, "\"'\n\r ");
     }
 }

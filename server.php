@@ -1,0 +1,14 @@
+<?php
+
+declare(strict_types=1);
+
+$uri = urldecode(
+    parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'
+);
+
+// Servir archivos estáticos si existen físicamente en public/
+if ($uri !== '/' && file_exists(__DIR__ . '/public' . $uri) && is_file(__DIR__ . '/public' . $uri)) {
+    return false;
+}
+
+require_once __DIR__ . '/public/index.php';

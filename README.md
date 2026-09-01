@@ -1,48 +1,33 @@
-# Subtitle Processor — PoC TUI
+# Subtitle Processor (Web UI & TUI)
 
-Aplicación TUI para **extracción y traducción de subtítulos** de archivos de video.
-PoC de terminal; la lógica de negocio está desacoplada en `app/Services` para
-reutilizarse después en una interfaz web.
+Aplicación moderna para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (Ollama, DeepSeek, Meta Muse, OpenAI, Google Translate) e integración con **Jellyfin**.
 
-```
-Terminal
-   ↓
-bin/subtitles  (TUI interactiva)
-   ↓
-Services  (Scanner, Analyzer, Extractor, Translator)
-   ↓
-FFprobe / FFmpeg / deep-translator  +  SQLite
-```
+---
 
-## Requisitos
+## 🚀 Despliegue con Docker (Recomendado para Web)
 
-| Herramienta | Versión | Uso |
-|---|---|---|
-| PHP | 8.3+ (cli, pdo_sqlite, mbstring) | Aplicación |
-| Composer | 2.x | Dependencias |
-| FFmpeg + FFprobe | 4.x+ | Análisis y extracción |
-| deep-translator | (pip, opcional) | Traducción gratuita vía Google |
-
-Instalación automática (Debian/Ubuntu):
+El contenedor incluye **PHP 8.3, FFmpeg, FFprobe y SQLite**, con acceso a tus discos multimedia y a tu servidor de Ollama / APIs de IA.
 
 ```bash
-./scripts/setup.sh
+# Iniciar contenedor Web en segundo plano
+docker compose up -d
+
+# Abrir en el navegador:
+http://localhost:8585
 ```
 
-## Instalación
+---
+
+## 💻 Ejecución Nativa (Sin Docker)
 
 ```bash
-composer install
-cp .env.example .env   # ajustar rutas multimedia y binarios
-./scripts/make-test-library.sh   # (opcional) genera videos de prueba
-```
+# Iniciar Servidor Web
+./bin/serve           # Disponible en http://localhost:8585
 
-## Uso
-
-```bash
-./bin/subtitles        # TUI interactiva
-./bin/scan             # escaneo automático (cron) — registra archivos
-./bin/scan --analyze   # escaneo + análisis FFprobe de nuevos/modificados
+# O usar la interfaz de consola TUI
+./bin/subtitles        # TUI interactiva en terminal
+./bin/jellyfin-sync    # Sincronización automática de Jellyfin
+./bin/scan --analyze   # Escaneo + análisis FFprobe
 ```
 
 ### TUI
@@ -79,7 +64,7 @@ o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
 | Proveedor | Modelo | Requisitos | Coste |
 |---|---|---|---|
 | `deepseek` | `deepseek-chat` | API key de DeepSeek | ~$0.045/película |
-| `meta-muse` | `muse-spark-1.2-contributor` | API key de Meta Model API | **~$0.01/película** (Contributor) |
+| `meta-muse` | `muse-spark-1.2` | API key de Meta Model API | **~$0.01/película** (Contributor) |
 | `deep-translator` | Google Translate (automático) | pip install deep-translator | Gratis |
 | `ollama` | `gemma2:2b`, `qwen2.5`… | [Ollama](https://ollama.com) + modelo descargado | Gratis, offline |
 | `openai` | `gpt-4o-mini`, o cualquier API compatible (Groq, OpenRouter…) | API key | De pago / freemium |
@@ -88,7 +73,7 @@ o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
 TRANSLATION_PROVIDER=meta-muse
 META_MUSE_API_KEY=LLM_...
 META_MUSE_BASE_URL=https://api.ai.meta.com/v1
-META_MUSE_MODEL=muse-spark-1.2-contributor
+META_MUSE_MODEL=muse-spark-1.2
 
 # o bien:
 TRANSLATION_PROVIDER=deepseek

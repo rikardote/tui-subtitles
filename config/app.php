@@ -4,14 +4,17 @@
  * Configuración global de la aplicación.
  *
  * La lógica de negocio lee toda su configuración desde aquí,
- * de modo que la futura versión web reutilice los mismos servicios.
  */
+
+date_default_timezone_set(env('APP_TIMEZONE', env('TZ', 'America/Tijuana')));
 
 return [
 
     'name' => 'Subtitle Processor',
 
     'version' => '0.1.0-poc',
+
+    'timezone' => env('APP_TIMEZONE', env('TZ', 'America/Tijuana')),
 
     // Rutas multimedia autorizadas.
     // La TUI nunca permitirá navegar fuera de estas rutas.
@@ -35,10 +38,10 @@ return [
         'vtt',
     ],
 
-    // Binarios del sistema (se resuelven con PATH si quedan vacíos).
+    // Binarios del sistema (se resuelven con PATH si quedan vacíos o no existen en el entorno actual).
     'binaries' => [
-        'ffmpeg' => env('FFMPEG_BIN', 'ffmpeg'),
-        'ffprobe' => env('FFPROBE_BIN', 'ffprobe'),
+        'ffmpeg' => is_executable((string) env('FFMPEG_BIN', '')) ? (string) env('FFMPEG_BIN') : 'ffmpeg',
+        'ffprobe' => is_executable((string) env('FFPROBE_BIN', '')) ? (string) env('FFPROBE_BIN') : 'ffprobe',
     ],
 
     // Traducción: proveedor y parámetros.
@@ -70,8 +73,8 @@ return [
 
         // Meta Muse Spark (Meta Model API — API compatible con OpenAI)
         'meta_muse_api_key' => env('META_MUSE_API_KEY', ''),
-        'meta_muse_base_url' => env('META_MUSE_BASE_URL', ''),
-        'meta_muse_model' => env('META_MUSE_MODEL', 'meta/muse-spark-1.2-contributor'),
+        'meta_muse_base_url' => env('META_MUSE_BASE_URL', 'https://api.ai.meta.com/v1'),
+        'meta_muse_model' => env('META_MUSE_MODEL', 'muse-spark-1.2'),
     ],
 
     // Integración con Jellyfin (opcional).

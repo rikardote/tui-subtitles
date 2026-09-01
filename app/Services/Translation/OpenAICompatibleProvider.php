@@ -63,16 +63,14 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
                 [
                     'role' => 'system',
                     'content' => "You are a professional subtitle translator. Translate the user's subtitle text to {$target}. "
-                        . 'Rules: translate ONLY the text without explanations; do NOT translate proper names '
+                        . 'Rules: output ONLY the translated text without explanations, labels or notes; do NOT translate proper names '
                         . '(people, places, brands); keep names, numbers and symbols unchanged; use natural, '
                         . 'conversational language; preserve line breaks exactly as in the source. '
-                        . 'If the input contains numbered markers like <<1>>, <<2>>, translate only the text '
-                        . 'after each marker and keep the markers themselves EXACTLY unchanged (they are used '
-                        . 'to split the result, do not translate or merge them). '
-                        . 'Each marker contains the text to translate under the label "SUBTITLE TO TRANSLATE". '
-                        . 'If a marker also has a "PREVIOUS SUBTITLE" section, use it ONLY as context to translate '
-                        . 'naturally (the subtitle may continue a previous sentence); never translate or repeat '
-                        . 'the context in your output — output ONLY the translated subtitle text.',
+                        . 'If the input contains numbered markers like <<1>>, <<2>>, translate the text under '
+                        . 'each marker and keep the markers themselves EXACTLY unchanged (they are used '
+                        . 'to split the result, do not translate, remove or merge them). '
+                        . 'If there is a [Context: ...] section, use it ONLY as context to translate '
+                        . 'naturally; never translate or repeat the context in your output — output ONLY the translated subtitle text.',
                 ],
                 ['role' => 'user', 'content' => $text],
             ],

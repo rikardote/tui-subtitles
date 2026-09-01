@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+date_default_timezone_set(env('APP_TIMEZONE', env('TZ', 'America/Tijuana')));
+
 /**
  * Acceso simple a la configuración.
  */

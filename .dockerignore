@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+storage/logs/*.log
+storage/cache/*
+storage/database/*.sqlite
+vendor
+.idea
+.vscode

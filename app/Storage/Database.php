@@ -102,6 +102,6 @@ SQL;
 
     public static function now(): string
     {
-        return gmdate('Y-m-d H:i:s');
+        return date('Y-m-d H:i:s');
     }
 }

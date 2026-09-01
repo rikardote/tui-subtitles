@@ -90,8 +90,14 @@ final class SubtitleTranslatorService
             $translated = $this->batch->translateBlocks(
                 $pending,
                 $target,
-                function (int $done, int $total) use ($onProgress, $offset, $totalBlocks): void {
-                    $onProgress?->__invoke($offset + $done, $totalBlocks);
+                function (int $done, int $total) use ($onProgress, $offset, $totalBlocks, $task): void {
+                    $currentDone = $offset + $done;
+                    $percent = min(99, (int) round(($currentDone / max(1, $totalBlocks)) * 100));
+                    if ($task !== null) {
+                        $task->progress = $percent;
+                        $task->save();
+                    }
+                    $onProgress?->__invoke($currentDone, $totalBlocks);
                 },
                 // Guarda el progreso acumulado tras cada lote (reanudable)
                 function (array $accumulated) use ($already, $checkpointPath): void {
@@ -105,7 +111,20 @@ final class SubtitleTranslatorService
             $merged = $this->mergeByIndex($already, $translated);
             $ordered = $this->orderByIndex($merged);
 
-            $output = $this->parser->build($ordered);
+            // Reindexar secuencialmente 1..N y asegurar que ningún bloque tenga texto vacío
+            $finalBlocks = [];
+            $seq = 1;
+            foreach ($ordered as $block) {
+                $text = trim($block['text'] ?? '');
+                $finalBlocks[] = [
+                    'index' => $seq++,
+                    'start' => $block['start'],
+                    'end' => $block['end'],
+                    'text' => $text !== '' ? $text : '...',
+                ];
+            }
+
+            $output = $this->parser->build($finalBlocks);
 
             $validation = $this->validator->validate($output);
 

@@ -1,0 +1,23 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Servidor Web local para Subtitle Processor
+ * Uso: ./bin/serve [puerto] (por defecto 8080)
+ */
+
+$port = $argv[1] ?? '8585';
+$host = '0.0.0.0';
+
+echo "========================================================\n";
+echo "  Subtitle Processor — Servidor Web\n";
+echo "  URL: http://localhost:{$port}\n";
+echo "  Presione Ctrl+C para detener el servidor.\n";
+echo "========================================================\n\n";
+
+$serverFile = __DIR__ . '/../server.php';
+$cmd = sprintf('php -S %s:%s %s', escapeshellarg($host), escapeshellarg($port), escapeshellarg($serverFile));
+
+passthru($cmd);

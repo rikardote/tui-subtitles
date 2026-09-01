@@ -174,6 +174,10 @@ Rules:
 - Preserve line breaks exactly as in the source.
 - If the text contains numbered markers like <<1>>, <<2>>, translate only the text after each marker
   and keep the markers EXACTLY unchanged (they split the result; never translate or merge them).
+- Each marker contains the text to translate under the label "SUBTITLE TO TRANSLATE".
+- If a marker has a "PREVIOUS SUBTITLE" section, use it ONLY as context to translate naturally
+  (the subtitle may continue a previous sentence); never translate or repeat the context in your output —
+  output ONLY the translated subtitle text.
 
 Source text:
 ---

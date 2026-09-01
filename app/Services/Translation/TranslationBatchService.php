@@ -143,12 +143,19 @@ final class TranslationBatchService
         $total = count($blocks);
         $done = 0;
 
+        // Contexto: último texto del lote anterior (frases que continúan)
+        $prevContext = null;
+
         foreach (array_chunk($blocks, $batchSize) as $batch) {
-            $translatedBatch = $this->translateBatch($batch, $targetLanguage);
+            $translatedBatch = $this->translateBatch($batch, $targetLanguage, $prevContext);
 
             foreach ($translatedBatch as $block) {
                 $result[] = $block;
             }
+
+            // Último texto ORIGINAL del lote (para contexto del siguiente)
+            $last = end($batch);
+            $prevContext = $last !== false ? trim($last['text']) : null;
 
             $done += count($translatedBatch);
             $onProgress?->__invoke($done, $total);
@@ -183,7 +190,7 @@ final class TranslationBatchService
      * @param  array<int, array>  $blocks
      * @return array<int, array>
      */
-    private function translateBatch(array $blocks, string $targetLanguage): array
+    private function translateBatch(array $blocks, string $targetLanguage, ?string $prevContext = null): array
     {
         // Bloques vacíos se devuelven tal cual
         $nonEmpty = array_values(array_filter(
@@ -195,10 +202,20 @@ final class TranslationBatchService
             return $blocks;
         }
 
-        // Construir el lote con marcadores
+        $useContext = $this->supportsContext();
+
+        // Construir el lote con marcadores (+ contexto del bloque anterior)
         $payload = [];
         foreach ($nonEmpty as $i => $block) {
-            $payload[] = sprintf(self::MARKER, $i + 1) . "\n" . $block['text'];
+            $entry = sprintf(self::MARKER, $i + 1) . "\n";
+
+            if ($useContext && $i === 0 && $prevContext !== null) {
+                $entry .= "PREVIOUS SUBTITLE (context only, do not translate):\n"
+                    . $prevContext . "\n";
+            }
+
+            $entry .= "SUBTITLE TO TRANSLATE:\n" . $block['text'];
+            $payload[] = $entry;
         }
         $batchText = implode("\n\n", $payload);
 
@@ -248,6 +265,17 @@ final class TranslationBatchService
         }
 
         return $out;
+    }
+
+    /**
+     * Indica si el proveedor activo entiende instrucciones (LLM).
+     * deep-translator (Google) traduciría las etiquetas de contexto.
+     */
+    private function supportsContext(): bool
+    {
+        $provider = (string) config('translation.provider', 'deep-translator');
+
+        return in_array($provider, ['deepseek', 'meta-muse', 'meta-muse-spark', 'openai', 'openai-compatible', 'ollama'], true);
     }
 
     /**

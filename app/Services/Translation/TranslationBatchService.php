@@ -52,6 +52,10 @@ final class TranslationBatchService
                     throw new RuntimeException('Traducción vacía.');
                 }
 
+                if ($this->isJunk($translated)) {
+                    throw new RuntimeException('El proveedor devolvió texto de error (basura).');
+                }
+
                 return [
                     'index' => $block['index'],
                     'start' => $block['start'],
@@ -72,6 +76,56 @@ final class TranslationBatchService
                 $lastError?->getMessage() ?? 'error desconocido'
             )
         );
+    }
+
+    /**
+     * Textos de error conocidos que NUNCA deben aceptarse como traducción.
+     * (Páginas de error de Google/DeepSeek que se cuelan como contenido).
+     */
+    private const JUNK_PATTERNS = [
+        'error 500',
+        'that\'s an error',
+        'there was an error',
+        'please try again later',
+        'that\'s all we know',
+        'http error',
+        'server error',
+        '429 too many requests',
+        'rate limit',
+        'bad gateway',
+        'model_not_found',
+        'invalid_api_key',
+        'translation result:',
+    ];
+
+    /**
+     * Determina si un texto es basura (página de error de la API) y no
+     * una traducción real. Devuelve true si debe rechazarse.
+     */
+    private function isJunk(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        // Página de error completa: varios patrones juntos
+        $hits = 0;
+        foreach (self::JUNK_PATTERNS as $pattern) {
+            if (str_contains($lower, $pattern)) {
+                $hits++;
+            }
+        }
+
+        if ($hits >= 2) {
+            return true;
+        }
+
+        // Frases de error en inglés dentro de una traducción al español
+        if (preg_match('/\b(error|errors?|failed|failure)\b/i', $text)
+            && ! preg_match('/[áéíóúñ¿¡]/', $text)
+            && strlen($text) > 30) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -154,6 +208,11 @@ final class TranslationBatchService
         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
             try {
                 $response = $this->provider->translate($batchText, $targetLanguage);
+
+                if ($this->isJunk($response)) {
+                    throw new RuntimeException('El proveedor devolvió texto de error (basura).');
+                }
+
                 $parsed = $this->parseMarkers($response, count($nonEmpty));
 
                 if ($parsed !== null) {
@@ -220,6 +279,13 @@ final class TranslationBatchService
 
         if (count($texts) !== $expected) {
             return null;
+        }
+
+        // Rechazar si algún segmento es basura (página de error)
+        foreach ($texts as $segment) {
+            if ($this->isJunk($segment)) {
+                return null;
+            }
         }
 
         return $texts;

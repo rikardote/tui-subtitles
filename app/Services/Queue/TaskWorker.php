@@ -47,6 +47,10 @@ final class TaskWorker
             }
 
             $this->processTask($task);
+
+            // Optimización: mientras se traduce la tarea actual,
+            // pre-extraer el SRT de las siguientes tareas en cola
+            $this->preExtractPending(3);
         }
 
         $this->log('Subtitle Worker detenido limpiamente.');
@@ -111,8 +115,10 @@ final class TaskWorker
                 throw new \RuntimeException('No se encontró ninguna pista de subtítulos en inglés para traducir.');
             }
 
-            // Obtener el contenido SRT
-            $rawSrt = $this->extractor->getSrtContent($media, $track);
+            // Usar el SRT pre-extraído si existe, si no extraer ahora
+            $cacheKey = sha1($media->id . '|' . $track->id);
+            $rawSrt = $this->usePreExtracted($cacheKey)
+                ?? $this->extractor->getSrtContent($media, $track);
 
             // Determinar la ruta de salida
             $lang = (string) config('translation.target_language', 'es');
@@ -165,6 +171,97 @@ final class TaskWorker
     public function stop(): void
     {
         $this->shouldStop = true;
+    }
+
+    /**
+     * Pre-extrae el SRT de las siguientes tareas pendientes en cola
+     * (la extracción es rápida y no requiere API; la traducción sí).
+     * Así, cuando la tarea le toque al worker, solo traduce.
+     */
+    private function preExtractPending(int $limit = 3): void
+    {
+        $pending = $this->queue->pendingList();
+        if ($pending === []) {
+            return;
+        }
+
+        foreach (array_slice($pending, 0, $limit) as $task) {
+            try {
+                $media = MediaFile::findById($task->mediaFileId);
+                if (! $media) {
+                    continue;
+                }
+
+                $track = $task->subtitleTrackId ? SubtitleTrack::findById($task->subtitleTrackId) : null;
+                if (! $track) {
+                    $track = $media->englishTracks()[0] ?? null;
+                }
+                if (! $track) {
+                    $this->analyzer->analyze($media);
+                    $track = $media->englishTracks()[0] ?? null;
+                }
+                if (! $track || ! $track->isTextBased) {
+                    continue;
+                }
+
+                $cacheKey = sha1($media->id . '|' . $track->id);
+                if (file_exists($this->cachePath($cacheKey))) {
+                    continue; // ya pre-extraído
+                }
+
+                $srt = $this->extractor->getSrtContent($media, $track);
+                if (trim($srt) === '') {
+                    continue;
+                }
+
+                $this->ensureCacheDir();
+                file_put_contents($this->cachePath($cacheKey), $srt, LOCK_EX);
+                $this->log("  ⚡ Pre-extraído: {$media->filename} (tarea #{$task->id})");
+            } catch (Throwable $e) {
+                // No debe bloquear el worker
+                $this->log("  ⚠ Pre-extracción falló (tarea #{$task->id}): " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Consume el SRT pre-extraído para una tarea, si existe.
+     */
+    private function usePreExtracted(string $cacheKey): ?string
+    {
+        $path = $this->cachePath($cacheKey);
+        if (! is_file($path)) {
+            return null;
+        }
+
+        $content = (string) file_get_contents($path);
+        @unlink($path); // se consume
+
+        if (trim($content) === '') {
+            return null;
+        }
+
+        $this->log("  ⚡ Usando subtítulo pre-extraído");
+        return $content;
+    }
+
+    private function cacheDir(): string
+    {
+        return (string) config('storage_path', dirname(__DIR__, 2) . '/storage')
+            . '/cache/preextracted';
+    }
+
+    private function cachePath(string $key): string
+    {
+        return $this->cacheDir() . '/' . $key . '.srt';
+    }
+
+    private function ensureCacheDir(): void
+    {
+        $dir = $this->cacheDir();
+        if (! is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
     }
 
     private function log(string $msg): void

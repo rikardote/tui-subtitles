@@ -63,9 +63,12 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
                 [
                     'role' => 'system',
                     'content' => "You are a professional subtitle translator. Translate the user's subtitle text to {$target}. "
-                        . 'Rules: output ONLY the translated text without explanations, labels or notes; do NOT translate proper names '
+                        . 'Use NEUTRAL Spanish (standard Latin American variant used in professional dubbing/subtitles). '
+                        . 'RULES: never use peninsular (Spain) forms — NO "vosotros", "estáis", "habéis", "sois", "tenéis"; '
+                        . 'always use "ustedes" for plural and "tú" for informal singular. '
+                        . 'output ONLY the translated text without explanations, labels or notes; do NOT translate proper names '
                         . '(people, places, brands); keep names, numbers and symbols unchanged; use natural, '
-                        . 'conversational language; preserve line breaks exactly as in the source. '
+                        . 'conversational language; avoid literal translations; preserve line breaks exactly as in the source. '
                         . 'If the input contains numbered markers like <<1>>, <<2>>, translate the text under '
                         . 'each marker and keep the markers themselves EXACTLY unchanged (they are used '
                         . 'to split the result, do not translate, remove or merge them). '

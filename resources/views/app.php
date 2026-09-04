@@ -236,8 +236,14 @@
                                 <span class="font-semibold text-xs text-white" x-text="lib.name"></span>
                                 <span class="text-[11px] text-slate-500 font-mono" x-text="'(' + lib.total_files + ' videos)'"></span>
                             </div>
-                            <div class="text-[11px] font-mono">
-                                <span :class="lib.has_spanish === lib.total_files ? 'text-emerald-400' : 'text-amber-400'"
+                            <div class="text-[11px] font-mono flex items-center gap-2">
+                                <template x-if="lib.review_pending > 0">
+                                    <span class="text-amber-400 flex items-center gap-1" title="Subtítulos con bloques pendientes de revisión">
+                                        <i data-lucide="triangle-alert" class="w-3.5 h-3.5"></i>
+                                        <span x-text="lib.review_pending + ' a revisar'"></span>
+                                    </span>
+                                </template>
+                                <span :class="lib.review_pending > 0 ? 'text-amber-400' : (lib.has_spanish === lib.total_files ? 'text-emerald-400' : 'text-slate-400')"
                                       x-text="lib.has_spanish + '/' + lib.total_files + ' con español'"></span>
                             </div>
                         </div>
@@ -259,9 +265,15 @@
                                         
                                         <!-- Folder state indicator + Batch translate action -->
                                         <div class="flex items-center space-x-2 shrink-0">
-                                            <template x-if="folder.has_spanish === folder.total_files">
+                                            <template x-if="folder.has_spanish === folder.total_files && !folder.review_pending">
                                                 <span class="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
                                                     <i data-lucide="check" class="w-3 h-3"></i> Listo
+                                                </span>
+                                            </template>
+                                            <template x-if="folder.has_spanish === folder.total_files && folder.review_pending > 0">
+                                                <span class="text-[11px] text-amber-400 font-mono flex items-center gap-1" title="Subtítulos con bloques a revisar con DeepSeek">
+                                                    <i data-lucide="triangle-alert" class="w-3 h-3"></i>
+                                                    <span x-text="folder.review_pending + ' a revisar'"></span>
                                                 </span>
                                             </template>
                                             <template x-if="folder.has_spanish < folder.total_files">

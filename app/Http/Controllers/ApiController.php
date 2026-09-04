@@ -888,6 +888,7 @@ final class ApiController
                     'folders' => [],
                     'total_files' => 0,
                     'has_spanish' => 0,
+                    'review_pending' => 0,
                 ];
             }
 
@@ -898,14 +899,21 @@ final class ApiController
                     'files' => [],
                     'total_files' => 0,
                     'has_spanish' => 0,
+                    'review_pending' => 0,
                 ];
             }
+
+            $reviewCount = $this->reviewPendingCount($media);
 
             $tree[$libName]['total_files']++;
             $tree[$libName]['folders'][$folderPath]['total_files']++;
             if ($hasSpanish) {
                 $tree[$libName]['has_spanish']++;
                 $tree[$libName]['folders'][$folderPath]['has_spanish']++;
+            }
+            if ($reviewCount > 0) {
+                $tree[$libName]['review_pending'] += $reviewCount;
+                $tree[$libName]['folders'][$folderPath]['review_pending'] += $reviewCount;
             }
 
             $tree[$libName]['folders'][$folderPath]['files'][] = [

@@ -260,6 +260,9 @@ final class ApiController
                 'review_pending' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null
                     ? count((array) @json_decode((string) @file_get_contents($t->path . '.review.json'), true))
                     : 0,
+                'review_problems' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null
+                    ? (array) @json_decode((string) @file_get_contents($t->path . '.review.json'), true)
+                    : [],
             ], $tracks),
         ];
     }

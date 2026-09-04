@@ -628,7 +628,25 @@
                         </div>
                         <div x-show="t.review_pending > 0" class="px-2.5 pb-2 bg-dark-950/60 text-amber-400 text-[10px] flex items-center gap-1">
                             <span>⚠</span>
-                            <span x-text="t.review_pending + ' bloque(s) detectado(s) como deficientes (sin traducir o error). La revisión usa DeepSeek (forzado).'"></span>
+                            <span x-text="t.review_pending + ' bloque(s) detectado(s) como deficientes. La revisión usa DeepSeek (forzado).'"></span>
+                        </div>
+                        <!-- Detalle de bloques problemáticos (inspección antes de revisar) -->
+                        <div x-show="t.review_pending > 0" class="px-2.5 pb-2 bg-dark-950/60 space-y-1">
+                            <button @click="toggleReviewDetail(t.id)" class="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-1">
+                                <i :data-lucide="reviewDetailOpen === t.id ? 'chevron-up' : 'chevron-down'" class="w-3 h-3"></i>
+                                <span x-text="reviewDetailOpen === t.id ? 'Ocultar bloques' : 'Ver bloques problemáticos (' + t.review_pending + ')'"></span>
+                            </button>
+                            <div x-show="reviewDetailOpen === t.id" class="space-y-1.5 pt-1">
+                                <template x-for="(p, pi) in (t.review_problems || [])" :key="pi">
+                                    <div class="border border-amber-500/20 rounded p-1.5 bg-dark-900">
+                                        <div class="flex justify-between items-center text-[9px] text-amber-300/80">
+                                            <span x-text="'Bloque #' + p.index"></span>
+                                            <span class="truncate ml-2" x-text="p.reason"></span>
+                                        </div>
+                                        <pre class="mt-0.5 text-[10px] text-slate-300 whitespace-pre-wrap font-sans leading-snug" x-text="p.original"></pre>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -747,6 +765,7 @@
                 pollTimer: null,
 
                 mediaModalOpen: false,
+                reviewDetailOpen: null,
                 activeMedia: {},
 
                 jellyfin: {},
@@ -983,6 +1002,11 @@
                         this.fetchTree();
                         this.fetchMedia();
                     } catch (e) { this.showToast('Error'); }
+                },
+
+                toggleReviewDetail(trackId) {
+                    this.reviewDetailOpen = this.reviewDetailOpen === trackId ? null : trackId;
+                    this.$nextTick(() => lucide.createIcons());
                 },
 
                 async reviewTrack(trackId) {

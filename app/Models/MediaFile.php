@@ -182,10 +182,21 @@ final class MediaFile
 
     public function englishTracks(): array
     {
-        return array_values(array_filter(
+        $tracks = array_values(array_filter(
             $this->tracks(),
             fn (SubtitleTrack $t) => in_array($t->languageDetected ?? $t->language, ['eng', 'en'], true)
         ));
+
+        // Prioridad para selección automática: normal (0) → SDH (1) → forced (2+)
+        // La pista "forced" suele tener solo unos pocos bloques (frases especiales)
+        // y no representa el subtítulo completo.
+        usort($tracks, function (SubtitleTrack $a, SubtitleTrack $b): int {
+            $score = fn (SubtitleTrack $t): int => ((int) $t->isForced * 2) + (int) $t->isSdh;
+
+            return $score($a) <=> $score($b);
+        });
+
+        return $tracks;
     }
 
     public function directory(): string

@@ -46,6 +46,12 @@ final class TranslationBatchService
             ];
         }
 
+        // Marcadores/etiquetas puras ("[Spanish]", "[Música]", "(risas)", "{an8}")
+        // no se traducen: el modelo los deforma. Se pasan tal cual.
+        if ($this->isMarkerOnly($text)) {
+            return $block;
+        }
+
         $maxRetries = (int) config('translation.max_retries', 3);
         $lastError = null;
 
@@ -113,7 +119,32 @@ final class TranslationBatchService
         'model_not_found',
         'invalid_api_key',
         'translation result:',
+        // Respuestas del modelo pidiendo texto (no traducciones)
+        'haven\'t provided',
+        'you\'d like me to translate',
+        'text to translate in',
+        'subtitle text',
+        'please provide the',
+        'please share the content',
+        'happy to help',
+        'i\'d be happy to',
+        'content you\'d like me to',
     ];
+
+    /**
+     * Determina si un texto es solo un marcador/etiqueta técnica
+     * ("[Spanish]", "[♪ música]", "(risas)", "{an8}") y no debe traducirse.
+     */
+    private function isMarkerOnly(string $text): bool
+    {
+        // Quitar corchetes, paréntesis, llaves y su contenido
+        $cleaned = preg_replace('/[\[\]\(\){}<>♪]+/u', '', $text) ?? $text;
+        $words = preg_split('/\s+/', trim($cleaned)) ?: [];
+        $words = array_filter($words, fn ($w) => $w !== '');
+
+        // Si tras quitar los delimitadores queda vacío o muy poco → marcador
+        return count($words) <= 1;
+    }
 
     /**
      * Determina si un texto es basura (página de error de la API) y no

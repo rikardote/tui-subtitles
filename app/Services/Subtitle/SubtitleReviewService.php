@@ -96,6 +96,10 @@ final class SubtitleReviewService
                 $byIndex[$b['index']] = $b;
             }
 
+            // Recuperar el texto ORIGINAL real desde el MKV (la pista en inglés
+            // puede haber sido reemplazada por una "respuesta" del modelo).
+            $originalFromMkv = $this->extractOriginalFromMkv($media);
+
             $reviewed = 0;
             $failed = [];
 
@@ -107,6 +111,18 @@ final class SubtitleReviewService
                     continue;
                 }
 
+                // El texto a re-traducir: el REAL del MKV si está disponible,
+                // si no, el que quedó en el bloque (puede ser la respuesta del modelo).
+                $realOriginal = $originalFromMkv[$index] ?? $original;
+
+                // Si el texto real es solo un marcador/etiqueta ("[Spanish]", "[♪]"),
+                // no hay nada que traducir: se restaura tal cual sin gastar API.
+                if ($this->isMarkerOnly($realOriginal)) {
+                    $byIndex[$index]['text'] = $realOriginal;
+                    $reviewed++;
+                    continue;
+                }
+
                 // Re-traducir con DeepSeek (con el texto original en inglés)
                 try {
                     $result = $forcedBatch->translateBlock(
@@ -114,7 +130,7 @@ final class SubtitleReviewService
                             'index' => $byIndex[$index]['index'],
                             'start' => $byIndex[$index]['start'],
                             'end' => $byIndex[$index]['end'],
-                            'text' => $original !== '' ? $original : $byIndex[$index]['text'],
+                            'text' => $realOriginal !== '' ? $realOriginal : $byIndex[$index]['text'],
                         ],
                         (string) config('translation.target_language', 'es')
                     );
@@ -165,6 +181,57 @@ final class SubtitleReviewService
 
             throw $e;
         }
+    }
+
+    /**
+     * Extrae del MKV la pista de subtítulos en inglés y devuelve su texto
+     * por índice de bloque, para recuperar el original real cuando el modelo
+     * reemplazó el subtítulo por una "respuesta".
+     *
+     * @return array<int, string>  índice → texto en inglés
+     */
+    private function extractOriginalFromMkv(MediaFile $media): array
+    {
+        $result = [];
+
+        try {
+            $track = $media->bestEnglishTextTrack();
+            if (! $track || ! $track->isTextBased || $track->streamIndex === null) {
+                return $result;
+            }
+
+            $tmp = tempnam(sys_get_temp_dir(), 'sub_review_') . '.srt';
+            @unlink($tmp);
+
+            /** @var \App\Infrastructure\FFmpeg $ffmpeg */
+            $ffmpeg = Container::get(\App\Infrastructure\FFmpeg::class);
+            $ffmpeg->extractSubtitle($media->path, $track->streamIndex, $tmp, true);
+
+            if (is_file($tmp)) {
+                $blocks = $this->parser->parse((string) file_get_contents($tmp));
+                foreach ($blocks as $b) {
+                    $result[$b['index']] = $b['text'];
+                }
+            }
+
+            @unlink($tmp);
+        } catch (\Throwable) {
+            // Sin original del MKV: se usará el texto guardado en el review.json
+        }
+
+        return $result;
+    }
+
+    /**
+     * ¿El texto es solo un marcador/etiqueta técnica que no debe traducirse?
+     */
+    private function isMarkerOnly(string $text): bool
+    {
+        $cleaned = preg_replace('/[\[\]\(\){}<>♪]+/u', '', $text) ?? $text;
+        $words = preg_split('/\s+/', trim($cleaned)) ?: [];
+        $words = array_filter($words, fn ($w) => $w !== '');
+
+        return count($words) <= 1;
     }
 
     private function uuid(): string

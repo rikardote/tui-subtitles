@@ -199,6 +199,32 @@ final class MediaFile
         return $tracks;
     }
 
+    /**
+     * Mejor pista de texto en inglés para traducción automática:
+     *  1. NUNCA elige pistas forced (si hay alternativa).
+     *  2. Prioriza normal (sin SDH) sobre SDH.
+     *
+     * Devuelve null si solo hay pistas forced (el usuario no usa forzados).
+     */
+    public function bestEnglishTextTrack(): ?SubtitleTrack
+    {
+        $tracks = $this->englishTracks();
+
+        $text = array_values(array_filter($tracks, fn (SubtitleTrack $t) => $t->isTextBased));
+        if ($text === []) {
+            return null;
+        }
+
+        // Si hay alguna pista no-forced, elegir la mejor de esas (ya ordenadas)
+        $nonForced = array_values(array_filter($text, fn (SubtitleTrack $t) => ! $t->isForced));
+        if ($nonForced !== []) {
+            return $nonForced[0];
+        }
+
+        // Solo hay pistas forced → el usuario nunca las usa
+        return null;
+    }
+
     public function directory(): string
     {
         return dirname($this->path);

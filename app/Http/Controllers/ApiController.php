@@ -312,17 +312,16 @@ final class ApiController
                 }
             }
         } else {
-            // Auto-seleccionar mejor pista de texto (preferencia inglés)
-            $candidates = array_values(array_filter($tracks, fn ($t) => $t->isTextBased));
-            foreach ($candidates as $c) {
-                $l = $c->languageDetected ?? $c->language;
-                if (in_array($l, ['eng', 'en'], true)) {
-                    $targetTrack = $c;
-                    break;
-                }
-            }
-            if (! $targetTrack && $candidates !== []) {
-                $targetTrack = $candidates[0];
+            // Auto-seleccionar: mejor pista de texto en inglés (nunca forced si hay alternativa)
+            $targetTrack = $media->bestEnglishTextTrack();
+
+            if (! $targetTrack) {
+                // Fallback: primera pista de texto no-forced en cualquier idioma
+                $candidates = array_values(array_filter(
+                    $tracks,
+                    fn ($t) => $t->isTextBased && ! $t->isForced
+                ));
+                $targetTrack = $candidates[0] ?? null;
             }
         }
 

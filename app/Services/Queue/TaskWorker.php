@@ -100,15 +100,13 @@ final class TaskWorker
             }
 
             if (! $track) {
-                $englishTracks = $media->englishTracks();
-                $track = $englishTracks[0] ?? null;
+                $track = $media->bestEnglishTextTrack();
             }
 
             if (! $track) {
                 // Re-analizar por si no se habían cargado las pistas
                 $this->analyzer->analyze($media);
-                $englishTracks = $media->englishTracks();
-                $track = $englishTracks[0] ?? null;
+                $track = $media->bestEnglishTextTrack();
             }
 
             if (! $track) {
@@ -194,11 +192,11 @@ final class TaskWorker
 
                 $track = $task->subtitleTrackId ? SubtitleTrack::findById($task->subtitleTrackId) : null;
                 if (! $track) {
-                    $track = $media->englishTracks()[0] ?? null;
+                    $track = $media->bestEnglishTextTrack();
                 }
                 if (! $track) {
                     $this->analyzer->analyze($media);
-                    $track = $media->englishTracks()[0] ?? null;
+                    $track = $media->bestEnglishTextTrack();
                 }
                 if (! $track || ! $track->isTextBased) {
                     continue;

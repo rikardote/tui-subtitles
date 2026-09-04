@@ -605,6 +605,7 @@
                 <h4 class="text-slate-400 font-medium">Pistas de Subtítulos:</h4>
                 <div class="border border-dark-800 rounded-lg overflow-hidden divide-y divide-dark-800">
                     <template x-for="t in activeMedia.tracks" :key="t.id">
+                        <div>
                         <div class="p-2.5 flex items-center justify-between bg-dark-950/60">
                             <div>
                                 <span class="font-semibold text-slate-200" x-text="t.language"></span>
@@ -648,6 +649,7 @@
                                 </template>
                             </div>
                         </div>
+                        </div><!-- /contenedor track -->
                     </template>
                 </div>
             </div>

@@ -33,7 +33,7 @@ final class TranslationBatchService
      *
      * @throws RuntimeException si falla tras los reintentos.
      */
-    public function translateBlock(array $block, string $targetLanguage): array
+    public function translateBlock(array $block, string $targetLanguage, ?callable $onProblem = null): array
     {
         $text = trim($block['text']);
 
@@ -75,6 +75,14 @@ final class TranslationBatchService
                 $lastError = $e;
                 usleep(500_000 * $attempt); // backoff: 0.5s, 1s, 1.5s...
             }
+        }
+
+        // Modo suave: si hay un callback de problemas, no romper la tarea;
+        // se conserva el texto original (inglés) y se notifica para revisión manual.
+        if ($onProblem !== null) {
+            $onProblem($block['index'], $lastError?->getMessage() ?? 'error desconocido', $block['text']);
+
+            return $block;
         }
 
         throw new RuntimeException(
@@ -223,7 +231,7 @@ final class TranslationBatchService
      * @param  callable(array<int, array>):void|null  $onBatch  fn($acumulado) tras cada lote
      * @return array<int, array>
      */
-    public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null, ?callable $onBatch = null): array
+    public function translateBlocks(array $blocks, string $targetLanguage, ?callable $onProgress = null, ?callable $onBatch = null, ?callable $onProblem = null): array
     {
         $batchSize = $this->resolveBatchSize();
         $result = [];
@@ -234,7 +242,7 @@ final class TranslationBatchService
         $prevContext = null;
 
         foreach (array_chunk($blocks, $batchSize) as $batch) {
-            $translatedBatch = $this->translateBatch($batch, $targetLanguage, $prevContext);
+            $translatedBatch = $this->translateBatch($batch, $targetLanguage, $prevContext, $onProblem);
 
             foreach ($translatedBatch as $block) {
                 $result[] = $block;
@@ -277,7 +285,7 @@ final class TranslationBatchService
      * @param  array<int, array>  $blocks
      * @return array<int, array>
      */
-    private function translateBatch(array $blocks, string $targetLanguage, ?string $prevContext = null): array
+    private function translateBatch(array $blocks, string $targetLanguage, ?string $prevContext = null, ?callable $onProblem = null): array
     {
         // Bloques vacíos se devuelven tal cual
         $nonEmpty = array_values(array_filter(
@@ -345,7 +353,7 @@ final class TranslationBatchService
 
                 // El proveedor no preservó los marcadores → fallback individual
                 return array_map(
-                    fn ($b) => $this->translateBlock($b, $targetLanguage),
+                    fn ($b) => $this->translateBlock($b, $targetLanguage, $onProblem),
                     $blocks
                 );
             } catch (\Throwable $e) {
@@ -357,7 +365,7 @@ final class TranslationBatchService
         // Fallo total del lote → intentar individual; si también falla, propagar
         $out = [];
         foreach ($blocks as $block) {
-            $out[] = $this->translateBlock($block, $targetLanguage);
+            $out[] = $this->translateBlock($block, $targetLanguage, $onProblem);
         }
 
         return $out;

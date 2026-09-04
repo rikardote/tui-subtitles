@@ -255,6 +255,10 @@ final class ApiController
                 'is_generated' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED,
                 'can_delete' => $t->sourceType !== SubtitleTrack::SOURCE_INTERNAL,
                 'can_translate' => $t->isTextBased,
+                // Bloques problemáticos pendientes de revisión (revisión manual con DeepSeek)
+                'review_pending' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null
+                    ? count((array) @json_decode((string) @file_get_contents($t->path . '.review.json'), true))
+                    : 0,
             ], $tracks),
         ];
     }
@@ -452,6 +456,61 @@ final class ApiController
         return [
             'success' => true,
             'deleted_file' => $res['deletedFile'],
+        ];
+    }
+
+    /**
+     * Consulta bloques problemáticos pendientes de revisión de un subtítulo generado.
+     */
+    public function trackReviewStatus(array $params): array
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $track = SubtitleTrack::findById($id);
+
+        if (! $track || $track->sourceType !== SubtitleTrack::SOURCE_GENERATED) {
+            return ['pending' => 0, 'problems' => null];
+        }
+
+        /** @var \App\Services\Subtitle\SubtitleReviewService $review */
+        $review = Container::get(\App\Services\Subtitle\SubtitleReviewService::class);
+        $problems = $review->pendingProblems((string) $track->path);
+
+        return [
+            'pending' => is_array($problems) ? count($problems) : 0,
+            'problems' => $problems,
+        ];
+    }
+
+    /**
+     * Re-traduce los bloques problemáticos con DeepSeek (forzado).
+     */
+    public function trackReview(array $params): array
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $track = SubtitleTrack::findById($id);
+
+        if (! $track) {
+            throw new \RuntimeException('Pista no encontrada', 404);
+        }
+
+        $media = MediaFile::findById($track->mediaFileId);
+        if (! $media) {
+            throw new \RuntimeException('Video asociado no encontrado', 404);
+        }
+
+        if ($track->path === null || ! is_file($track->path)) {
+            throw new \RuntimeException('El archivo de subtítulos no existe en disco.');
+        }
+
+        /** @var \App\Services\Subtitle\SubtitleReviewService $review */
+        $review = Container::get(\App\Services\Subtitle\SubtitleReviewService::class);
+        $result = $review->reviewWithDeepSeek($media, $track->path);
+
+        return [
+            'success' => true,
+            'reviewed' => $result['reviewed'],
+            'total' => $result['total'],
+            'output_path' => $result['outputPath'],
         ];
     }
 

@@ -20,6 +20,7 @@ use App\Services\Subtitle\LanguageDetectorService;
 use App\Services\Subtitle\SubtitleAnalyzerService;
 use App\Services\Subtitle\SubtitleFilenameService;
 use App\Services\Subtitle\SubtitleParserService;
+use App\Services\Subtitle\SubtitleReviewService;
 use App\Services\Subtitle\SubtitleValidatorService;
 use App\Services\Translation\DeepTranslatorProvider;
 use App\Services\Translation\OllamaTranslationProvider;
@@ -66,6 +67,10 @@ final class Container
             SubtitleParserService::class => new SubtitleParserService(),
             SubtitleValidatorService::class => new SubtitleValidatorService(),
             SubtitleFilenameService::class => new SubtitleFilenameService(),
+            SubtitleReviewService::class => new SubtitleReviewService(
+                self::get(SubtitleParserService::class),
+                self::get(TranslationBatchService::class),
+            ),
             SubtitleAnalyzerService::class => new SubtitleAnalyzerService(
                 self::get(FFprobe::class),
                 self::get(LanguageDetectorService::class),

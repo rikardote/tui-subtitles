@@ -87,6 +87,9 @@ final class SubtitleTranslatorService
                 $onProgress($offset, $totalBlocks);
             }
 
+            // Acumulador de bloques problemáticos (para revisión manual posterior)
+            $problems = [];
+
             $translated = $this->batch->translateBlocks(
                 $pending,
                 $target,
@@ -104,6 +107,14 @@ final class SubtitleTranslatorService
                     $merged = $this->mergeByIndex($already, $accumulated);
                     $ordered = $this->orderByIndex($merged);
                     file_put_contents($checkpointPath, $this->parser->build($ordered), LOCK_EX);
+                },
+                // Bloque que el proveedor no pudo traducir bien: se marca para revisión
+                function (int $index, string $reason, string $originalText) use (&$problems): void {
+                    $problems[$index] = [
+                        'index' => $index,
+                        'reason' => $reason,
+                        'original' => $originalText,
+                    ];
                 }
             );
 
@@ -141,6 +152,17 @@ final class SubtitleTranslatorService
 
             if (file_put_contents($outputPath, $output, LOCK_EX) === false) {
                 throw new RuntimeException('No se pudo escribir el archivo de salida.');
+            }
+
+            // Si quedaron bloques problemáticos, guardar el registro de revisión
+            // (el usuario decidirá si re-traducirlos con DeepSeek).
+            if ($problems !== []) {
+                $reviewPath = $outputPath . '.review.json';
+                file_put_contents(
+                    $reviewPath,
+                    json_encode(array_values($problems), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE),
+                    LOCK_EX
+                );
             }
 
             // Limpiar el checkpoint al completar

@@ -40,6 +40,8 @@ $router->post('/api/media/batch-translate', [ApiController::class, 'mediaBatchTr
 $router->post('/api/media/{id}/extract', [ApiController::class, 'mediaExtract']);
 $router->delete('/api/media/{id}/generated', [ApiController::class, 'mediaDeleteGenerated']);
 $router->delete('/api/tracks/{id}', [ApiController::class, 'trackDelete']);
+$router->get('/api/tracks/{id}/review-status', [ApiController::class, 'trackReviewStatus']);
+$router->post('/api/tracks/{id}/review', [ApiController::class, 'trackReview']);
 $router->post('/api/scan', [ApiController::class, 'scanLibraries']);
 $router->get('/api/tasks', [ApiController::class, 'tasksList']);
 $router->get('/api/tasks/active', [ApiController::class, 'activeTask']);

@@ -596,11 +596,19 @@
                                         class="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-medium transition">
                                     Traducir
                                 </button>
+                                <button x-show="t.review_pending > 0" @click="reviewTrack(t.id)"
+                                        class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-medium transition">
+                                    Revisar con DeepSeek (x-text="t.review_pending")
+                                </button>
                                 <button x-show="t.can_delete" @click="deleteTrack(t.id)"
                                         class="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] transition">
                                     Borrar
                                 </button>
                             </div>
+                        </div>
+                        <div x-show="t.review_pending > 0" class="px-2.5 pb-2 bg-dark-950/60 text-amber-400 text-[10px] flex items-center gap-1">
+                            <span>⚠</span>
+                            <span x-text="t.review_pending + ' bloque(s) detectado(s) como deficientes (sin traducir o error). La revisión usa DeepSeek (forzado).'"></span>
                         </div>
                     </template>
                 </div>
@@ -955,6 +963,24 @@
                         this.fetchTree();
                         this.fetchMedia();
                     } catch (e) { this.showToast('Error'); }
+                },
+
+                async reviewTrack(trackId) {
+                    if (!confirm('¿Revisar los bloques deficientes con DeepSeek?\nEsto usará la API de DeepSeek (coste puntual).')) return;
+                    this.showToast('Revisando con DeepSeek...');
+                    try {
+                        const res = await fetch(`/api/tracks/${trackId}/review`, { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast(`✓ ${data.reviewed}/${data.total} bloques revisados`);
+                            // Recargar el modal para refrescar review_pending
+                            if (this.mediaModalOpen && this.activeMedia?.id) {
+                                this.openMediaModal(this.activeMedia.id);
+                            }
+                        } else {
+                            this.showToast('Error en la revisión');
+                        }
+                    } catch (e) { this.showToast('Error en la revisión'); }
                 },
 
                 async triggerScan() {

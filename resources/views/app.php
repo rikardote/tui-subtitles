@@ -348,7 +348,15 @@
                                                             </button>
                                                         </template>
 
-                                                        <template x-if="!file.has_spanish && file.english_tracks_count === 0">
+                                                        <!-- Sin analizar aún (la app no sabe si tiene subs) -->
+                                                        <template x-if="!file.has_spanish && file.status === 'pending'">
+                                                            <button @click.stop="openMediaModal(file.id)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-slate-200" title="Archivo sin analizar. Clic para analizarlo">
+                                                                <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                                                                <span>Por analizar</span>
+                                                            </button>
+                                                        </template>
+
+                                                        <template x-if="!file.has_spanish && file.english_tracks_count === 0 && file.status !== 'pending'">
                                                             <span class="text-[11px] text-slate-500">Sin fuente EN</span>
                                                         </template>
 

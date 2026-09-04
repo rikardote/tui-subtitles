@@ -21,7 +21,6 @@ return [
     'media_paths' => [
         'Movies' => env('MEDIA_PATH_MOVIES', '/media/Movies'),
         'TvShows' => env('MEDIA_PATH_TV', '/media/TvShows'),
-        'Pruebas' => env('MEDIA_PATH_TEST', dirname(__DIR__) . '/storage/test-library/Movies'),
     ],
 
     // Extensiones de video soportadas para escaneo.

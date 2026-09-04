@@ -618,7 +618,7 @@
                                 </button>
                                 <button x-show="t.review_pending > 0" @click="reviewTrack(t.id)"
                                         class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-medium transition">
-                                    Revisar con DeepSeek (x-text="t.review_pending")
+                                    Revisar con DeepSeek (<span x-text="t.review_pending"></span>)
                                 </button>
                                 <button x-show="t.can_delete" @click="deleteTrack(t.id)"
                                         class="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] transition">

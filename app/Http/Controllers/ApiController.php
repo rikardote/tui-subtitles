@@ -166,6 +166,7 @@ final class ApiController
                 'last_analyzed_at' => $media->lastAnalyzedAt,
                 'has_spanish' => $hasSpanish,
                 'english_tracks_count' => $englishCount,
+                'review_pending' => $this->reviewPendingCount($media),
                 'tracks_count' => count($tracks),
                 'tracks_summary' => array_map(fn (SubtitleTrack $t) => [
                     'id' => $t->id,
@@ -922,6 +923,7 @@ final class ApiController
                 'status' => $media->status,
                 'has_spanish' => $hasSpanish,
                 'english_tracks_count' => count($media->englishTracks()),
+                'review_pending' => $this->reviewPendingCount($media),
                 'tracks_count' => count($tracks),
                 'tracks' => array_map(fn (SubtitleTrack $t) => [
                     'id' => $t->id,
@@ -947,6 +949,33 @@ final class ApiController
         }
 
         return ['tree' => $result];
+    }
+
+    /**
+     * Cuenta los bloques problemáticos pendientes de revisión de un media
+     * (suma de los .review.json de sus pistas generadas).
+     */
+    private function reviewPendingCount(MediaFile $media): int
+    {
+        $total = 0;
+
+        foreach ($media->tracks() as $track) {
+            if ($track->sourceType !== SubtitleTrack::SOURCE_GENERATED || $track->path === null) {
+                continue;
+            }
+
+            $reviewPath = $track->path . '.review.json';
+            if (! is_file($reviewPath)) {
+                continue;
+            }
+
+            $data = json_decode((string) file_get_contents($reviewPath), true);
+            if (is_array($data)) {
+                $total += count($data);
+            }
+        }
+
+        return $total;
     }
 
     private function writeEnv(array $values): void

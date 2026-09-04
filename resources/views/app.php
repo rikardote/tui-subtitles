@@ -296,11 +296,19 @@
                                                     <!-- Subtitles info & Queue Action -->
                                                     <div class="flex items-center space-x-2 shrink-0">
                                                         <!-- Status Pill -->
-                                                        <template x-if="file.has_spanish">
+                                                        <template x-if="file.has_spanish && !file.review_pending">
                                                             <span class="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
                                                                 <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
                                                                 <span class="hidden sm:inline">Español</span>
                                                             </span>
+                                                        </template>
+
+                                                        <!-- Tiene español pero con bloques a revisar -->
+                                                        <template x-if="file.has_spanish && file.review_pending > 0">
+                                                            <button @click.stop="openMediaModal(file.id)" class="text-[11px] text-amber-400 font-medium flex items-center gap-1 hover:text-amber-300" title="Subtítulo con bloques sin traducir. Clic para revisar con DeepSeek">
+                                                                <i data-lucide="triangle-alert" class="w-3.5 h-3.5"></i>
+                                                                <span class="hidden sm:inline" x-text="'Español · ' + file.review_pending + ' a revisar'"></span>
+                                                            </button>
                                                         </template>
                                                         
                                                         <!-- Is in active translation -->

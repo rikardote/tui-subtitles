@@ -61,6 +61,10 @@ final class TranslationBatchService
                     throw new RuntimeException('El proveedor devolvió texto de error (basura).');
                 }
 
+                if ($this->looksUntranslated($text, $translated)) {
+                    throw new RuntimeException('El proveedor devolvió el texto sin traducir (sigue en inglés).');
+                }
+
                 return [
                     'index' => $block['index'],
                     'start' => $block['start'],
@@ -131,6 +135,84 @@ final class TranslationBatchService
         }
 
         return false;
+    }
+
+    /**
+     * Detecta cuando la "traducción" es idéntica (o casi) al original en inglés
+     * — el modelo devolvió el texto sin traducir.
+     *
+     * Nombres propios y textos sin palabras funcionales inglesas NO se marcan
+     * (p.ej. "New York", "Dancing with the Stars" en contexto español).
+     */
+    private function looksUntranslated(string $original, string $translated): bool
+    {
+        $norm = function (string $s): string {
+            // Quitar etiquetas HTML/ASS, puntuación y nombres de hablante [Xxx]
+            $s = preg_replace('/<[^>]+>|\\{[^\\}]+\\}|\[[A-Z][^\]]*\]|♪/u', ' ', $s) ?? $s;
+            $s = strtolower($s);
+            $s = preg_replace('/[^a-záéíóúñü0-9\s]/u', '', $s) ?? $s;
+
+            return trim(preg_replace('/\s+/', ' ', $s) ?? $s);
+        };
+
+        $o = $norm($original);
+        $t = $norm($translated);
+
+        // Sin contenido textual comparable → no marcar
+        if (str_word_count($o) < 3 || str_word_count($t) < 3) {
+            return false;
+        }
+
+        // Idénticas → sospechoso
+        if ($t === $o) {
+            return $this->containsEnglish($t);
+        }
+
+        // Casi idénticas (variaciones menores del modelo) → sospechoso
+        if (mb_strlen($o) < 500 && mb_strlen($t) < 500) {
+            $distance = levenshtein($o, $t);
+            $ratio = $distance / max(strlen($o), strlen($t), 1);
+            if ($ratio < 0.15) {
+                return $this->containsEnglish($t);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Heurística: el texto parece inglés (sin caracteres españoles y con
+     * palabras funcionales inglesas de alta frecuencia).
+     */
+    private function containsEnglish(string $text): bool
+    {
+        // Si tiene caracteres propios del español, ya no es inglés puro
+        if (preg_match('/[áéíóúñ¿¡]/u', $text)) {
+            return false;
+        }
+
+        $functional = [
+            'the', 'and', 'that', 'with', 'this', 'you', 'are', 'what', 'but', 'from',
+            'they', 'will', 'your', 'because', 'about', 'just', 'have', 'were', 'been',
+            'there', 'where', 'when', 'would', 'could', 'should', 'them', 'their',
+            'these', 'those', 'which', 'into', 'over', 'again', 'some', 'most', 'other',
+            'only', 'own', 'same', 'than', 'too', 'very', 'not', 'for', 'was', 'has',
+            'had', 'did', 'get', 'got', 'going', 'don', 'can', 'im', 'ive', 'youre',
+            'its', 'it', 'is', 'to', 'of', 'in', 'he', 'she', 'we', 'if', 'so', 'no',
+        ];
+
+        $words = preg_split('/[^a-z]+/', $text) ?: [];
+        $hits = 0;
+
+        foreach ($words as $word) {
+            if (in_array($word, $functional, true)) {
+                $hits++;
+            }
+        }
+
+        $wordCount = count(array_filter($words, fn ($w) => strlen($w) > 2));
+
+        return $hits >= 3 || ($wordCount >= 5 && $hits >= 2);
     }
 
     /**
@@ -244,6 +326,12 @@ final class TranslationBatchService
                         if ($translatedText === '') {
                             $translatedText = trim($block['text']) !== '' ? $block['text'] : '...';
                         }
+
+                        // Si el segmento quedó sin traducir → fallback individual (con reintentos)
+                        if ($this->looksUntranslated($block['text'], $translatedText)) {
+                            throw new RuntimeException('El proveedor devolvió texto sin traducir en el lote.');
+                        }
+
                         $out[] = [
                             'index' => $block['index'],
                             'start' => $block['start'],

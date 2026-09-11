@@ -19,24 +19,38 @@ final class QueueService
      */
     public function enqueueTranslation(MediaFile $media, ?SubtitleTrack $track = null): ProcessingTask
     {
-        // Si ya hay una tarea activa o pendiente para este archivo, devolverla
-        $existing = $this->findActiveForMedia($media->id, ProcessingTask::ACTION_TRANSLATE);
-        if ($existing !== null) {
-            return $existing;
+        // Transacción exclusiva: evita duplicados si llegan dos peticiones
+        // a la vez (doble clic) — la segunda verá la tarea ya creada.
+        $pdo = \App\Storage\Database::pdo();
+        $pdo->exec('BEGIN IMMEDIATE');
+
+        try {
+            // Si ya hay una tarea activa o pendiente para este archivo, devolverla
+            $existing = $this->findActiveForMedia($media->id, ProcessingTask::ACTION_TRANSLATE);
+            if ($existing !== null) {
+                $pdo->exec('COMMIT');
+
+                return $existing;
+            }
+
+            $task = new ProcessingTask();
+            $task->mediaFileId = $media->id;
+            $task->subtitleTrackId = $track?->id;
+            $task->action = ProcessingTask::ACTION_TRANSLATE;
+            $task->status = ProcessingTask::STATUS_PENDING;
+            $task->progress = 0;
+            $task->sourceLanguage = $track?->language ?? $track?->languageDetected ?? 'eng';
+            $task->targetLanguage = (string) config('translation.target_language', 'es');
+            $task->inputPath = $track?->path ?? $media->path;
+            $task->save();
+
+            $pdo->exec('COMMIT');
+
+            return $task;
+        } catch (\Throwable $e) {
+            $pdo->exec('ROLLBACK');
+            throw $e;
         }
-
-        $task = new ProcessingTask();
-        $task->mediaFileId = $media->id;
-        $task->subtitleTrackId = $track?->id;
-        $task->action = ProcessingTask::ACTION_TRANSLATE;
-        $task->status = ProcessingTask::STATUS_PENDING;
-        $task->progress = 0;
-        $task->sourceLanguage = $track?->language ?? $track?->languageDetected ?? 'eng';
-        $task->targetLanguage = (string) config('translation.target_language', 'es');
-        $task->inputPath = $track?->path ?? $media->path;
-        $task->save();
-
-        return $task;
     }
 
     /**

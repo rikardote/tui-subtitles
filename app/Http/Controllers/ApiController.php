@@ -341,6 +341,17 @@ final class ApiController
             throw new \RuntimeException('La pista seleccionada es de imagen (PGS/VobSub) y no se puede traducir sin OCR.');
         }
 
+        // Si se seleccionó una pista FORZADA (solo frases especiales, no el diálogo
+        // completo), se cancela y se usa automáticamente la pista completa.
+        $forcedRedirect = false;
+        if ($targetTrack->isForced) {
+            $better = $media->bestEnglishTextTrack();
+            if ($better !== null && $better->id !== $targetTrack->id) {
+                $targetTrack = $better;
+                $forcedRedirect = true;
+            }
+        }
+
         /** @var \App\Services\Queue\QueueService $queue */
         $queue = Container::get(\App\Services\Queue\QueueService::class);
         $task = $queue->enqueueTranslation($media, $targetTrack);
@@ -349,7 +360,10 @@ final class ApiController
             'success' => true,
             'queued' => true,
             'task_id' => $task->id,
-            'message' => 'Tarea agregada a la cola de traducción',
+            'message' => $forcedRedirect
+                ? 'La pista forzada se ignoró: se usará la pista completa para traducir.'
+                : 'Tarea agregada a la cola de traducción',
+            'forced_redirect' => $forcedRedirect,
         ];
     }
 

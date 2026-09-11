@@ -618,12 +618,18 @@
                             <div>
                                 <span class="font-semibold text-slate-200" x-text="t.language"></span>
                                 <span x-show="t.is_sdh" class="text-amber-400 text-[10px] ml-1">(SDH)</span>
+                                <span x-show="t.is_forced" class="text-rose-400 text-[10px] ml-1" title="Subtítulo forzado: solo frases especiales (no el diálogo completo)">⚠ forzado</span>
                                 <span class="text-[10px] text-slate-500 ml-1" x-text="'[' + t.codec + ']'"></span>
                             </div>
                             <div class="space-x-1">
-                                <button x-show="t.can_translate" @click="translateTrack(activeMedia.id, t.id)"
+                                <button x-show="t.can_translate && !t.is_forced" @click="translateTrack(activeMedia.id, t.id)"
                                         class="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-medium transition">
                                     Traducir
+                                </button>
+                                <button x-show="t.can_translate && t.is_forced" @click="translateTrack(activeMedia.id, t.id)"
+                                        class="px-2 py-0.5 bg-slate-600 hover:bg-slate-500 text-white rounded text-[10px] font-medium transition"
+                                        title="Pista forzada: se ignorará y se usará la pista COMPLETA del episodio">
+                                    Traducir (pista completa)
                                 </button>
                                 <button x-show="t.review_pending > 0" @click="reviewTrack(t.id)"
                                         class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-medium transition">
@@ -981,7 +987,9 @@
                         });
                         const data = await res.json();
                         if (data.success) {
-                            this.showToast('✓ Pista agregada a la cola');
+                            this.showToast(data.forced_redirect
+                                ? '⚠ Pista forzada ignorada — se usará la pista COMPLETA'
+                                : '✓ Pista agregada a la cola');
                             this.mediaModalOpen = false;
                             this.fetchQueueStatus();
                         } else {

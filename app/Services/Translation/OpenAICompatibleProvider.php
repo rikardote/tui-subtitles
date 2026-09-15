@@ -56,7 +56,7 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
 
         $target = $targetLanguage === 'es' ? 'Spanish (es)' : $targetLanguage;
 
-        $payload = json_encode([
+        $payloadData = [
             'model' => $model,
             'temperature' => 0.2,
             'messages' => [
@@ -77,11 +77,21 @@ final class OpenAICompatibleProvider implements TranslationProviderInterface
                 ],
                 ['role' => 'user', 'content' => $text],
             ],
-            // Muse Spark y otros modelos de razonamiento necesitan: esfuerzo mínimo
-            // (evita gastar tokens "pensando") y un límite generoso de salida.
-            'reasoning_effort' => 'minimal',
-            'max_tokens' => (int) (strlen($text) * 2.5) + 200,
-        ], JSON_UNESCAPED_UNICODE);
+            // Límite de salida ajustado al tamaño real esperado.
+            'max_tokens' => (int) (strlen($text) * 1.5) + 300,
+        ];
+
+        // DeepSeek v4: DESACTIVAR el "razonamiento" — con contenido soez el
+        // modelo gastaba TODOS los tokens pensando y devolvía contenido vacío
+        // (bloqueos/cuelgues). Desactivado responde en ~9 tokens.
+        if (str_contains($baseUrl, 'deepseek')) {
+            $payloadData['thinking'] = ['type' => 'disabled'];
+        } else {
+            // Muse Spark y otros modelos de razonamiento: esfuerzo mínimo
+            $payloadData['reasoning_effort'] = 'minimal';
+        }
+
+        $payload = json_encode($payloadData, JSON_UNESCAPED_UNICODE);
 
         $context = stream_context_create([
             'http' => [

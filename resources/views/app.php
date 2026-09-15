@@ -79,12 +79,6 @@
                     <span>Tabla</span>
                 </button>
                 <span class="w-px h-3.5 bg-dark-800 mx-0.5"></span>
-                <button @click="currentTab = 'jellyfin'"
-                        :class="currentTab === 'jellyfin' ? 'bg-dark-800 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
-                        class="px-3 py-1 rounded-md transition flex items-center space-x-1.5">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-                    <span>Jellyfin</span>
-                </button>
                 <button @click="currentTab = 'tasks'"
                         :class="currentTab === 'tasks' ? 'bg-dark-800 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'"
                         class="px-3 py-1 rounded-md transition flex items-center space-x-1.5">
@@ -488,38 +482,6 @@
         </section>
 
         <!-- ========================================== -->
-        <!-- VIEW 3: JELLYFIN TAB                       -->
-        <!-- ========================================== -->
-        <section x-show="currentTab === 'jellyfin'" class="space-y-4">
-            <div class="bg-dark-900 border border-dark-800 rounded-xl p-5 space-y-4">
-                <div class="flex items-center justify-between pb-3 border-b border-dark-800">
-                    <h2 class="text-sm font-semibold text-white">Sincronización con Jellyfin</h2>
-                    <span class="text-xs px-2.5 py-0.5 rounded-full"
-                          :class="jellyfin.connected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400'">
-                        <span x-text="jellyfin.connected ? 'Conectado' : 'Desconectado'"></span>
-                    </span>
-                </div>
-
-                <div class="flex items-center space-x-3 text-xs">
-                    <select x-model="jellyfinSyncOptions.item_types" class="bg-dark-950 border border-dark-750 text-slate-200 rounded p-1.5">
-                        <option value="Movie,Episode">Películas y Series</option>
-                        <option value="Movie">Solo Películas</option>
-                        <option value="Episode">Solo Episodios</option>
-                    </select>
-
-                    <button @click="startJellyfinSync()" :disabled="jellyfinSyncing"
-                            class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded font-medium transition">
-                        <span x-text="jellyfinSyncing ? 'Sincronizando...' : 'Iniciar Sincronización'"></span>
-                    </button>
-                </div>
-
-                <div x-show="jellyfinResult" class="bg-dark-950 p-3 rounded-lg border border-dark-800 font-mono text-xs text-slate-300">
-                    <p class="text-slate-400">Resultado: <span class="text-white" x-text="jellyfinResult?.message"></span></p>
-                </div>
-            </div>
-        </section>
-
-        <!-- ========================================== -->
         <!-- VIEW 4: COLA Y TAREAS                      -->
         <!-- ========================================== -->
         <section x-show="currentTab === 'tasks'" class="space-y-4">
@@ -793,11 +755,6 @@
                 reviewDetailOpen: null,
                 activeMedia: {},
 
-                jellyfin: {},
-                jellyfinSyncing: false,
-                jellyfinSyncOptions: { item_types: 'Movie,Episode', limit: 0, dry_run: false },
-                jellyfinResult: null,
-
                 tasksList: [],
                 settingsModalOpen: false,
                 settingsData: {},
@@ -810,7 +767,6 @@
                     this.fetchDashboard();
                     this.fetchTree();
                     this.fetchMedia();
-                    this.fetchJellyfin();
                     this.fetchTasks();
                     this.fetchQueueStatus();
                     this.startQueuePolling();
@@ -1065,31 +1021,6 @@
                         this.fetchMedia();
                     } catch (e) { this.showToast('Error al escanear'); }
                     finally { this.scanning = false; }
-                },
-
-                async fetchJellyfin() {
-                    try {
-                        const res = await fetch('/api/jellyfin/status');
-                        this.jellyfin = await res.json();
-                    } catch (e) { console.error(e); }
-                },
-
-                async startJellyfinSync() {
-                    this.jellyfinSyncing = true;
-                    this.showToast('Sincronizando Jellyfin...');
-                    try {
-                        const res = await fetch('/api/jellyfin/sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(this.jellyfinSyncOptions)
-                        });
-                        this.jellyfinResult = await res.json();
-                        this.showToast('✓ Sincronización lista');
-                        this.fetchDashboard();
-                        this.fetchTree();
-                        this.fetchMedia();
-                    } catch (e) { this.showToast('Error en sincronización'); }
-                    finally { this.jellyfinSyncing = false; }
                 },
 
                 async fetchTasks() {

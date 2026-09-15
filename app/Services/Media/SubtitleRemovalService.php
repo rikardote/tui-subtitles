@@ -56,8 +56,8 @@ final class SubtitleRemovalService
         $task->progress = 100;
         $task->sourceLanguage = $track->languageDetected ?? $track->language;
         $task->inputPath = $track->path;
-        $task->startedAt = date('Y-m-d H:i:s');
-        $task->completedAt = date('Y-m-d H:i:s');
+        $task->startedAt = gmdate('Y-m-d H:i:s');
+        $task->completedAt = gmdate('Y-m-d H:i:s');
         $task->save();
 
         return $result;

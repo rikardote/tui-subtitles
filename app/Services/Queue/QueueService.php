@@ -88,7 +88,7 @@ final class QueueService
         if (in_array($task->status, [ProcessingTask::STATUS_PENDING, ProcessingTask::STATUS_RUNNING], true)) {
             $task->status = ProcessingTask::STATUS_CANCELLED;
             $task->errorMessage = 'Cancelado por el usuario';
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
             return true;
         }

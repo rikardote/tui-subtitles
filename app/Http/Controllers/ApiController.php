@@ -1090,7 +1090,10 @@ final class ApiController
 
         foreach ($values as $key => $value) {
             $pattern = '/^' . preg_quote($key, '/') . '=.*$/m';
-            $line = $key . '=' . $value;
+            // Los valores con espacios se entrecomillan para no corromper el .env
+            $needsQuotes = preg_match('/\s/', $value) === 1;
+            $encoded = $needsQuotes ? '"' . str_replace('"', '\\"', $value) . '"' : $value;
+            $line = $key . '=' . $encoded;
 
             if (preg_match($pattern, $content)) {
                 $content = preg_replace($pattern, $line, $content);

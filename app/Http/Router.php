@@ -125,8 +125,27 @@ final class Router
 
     private function cors(): void
     {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+        // El frontend se sirve desde el mismo origen, así que CORS no es
+        // necesario. Solo se habilita si se define APP_CORS_ORIGIN
+        // (p. ej. para desarrollo con el frontend en otro puerto).
+        $allowedOrigin = (string) env('APP_CORS_ORIGIN', '');
+
+        if ($allowedOrigin === '') {
+            return;
+        }
+
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+
+        if ($origin !== '' && ($allowedOrigin === '*' || $origin === $allowedOrigin)) {
+            header('Access-Control-Allow-Origin: ' . ($allowedOrigin === '*' ? '*' : $origin));
+            header('Vary: Origin');
+            header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
+            header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+
+            // Credentials solo con origen explícito (nunca combinado con '*')
+            if ($allowedOrigin !== '*') {
+                header('Access-Control-Allow-Credentials: true');
+            }
+        }
     }
 }

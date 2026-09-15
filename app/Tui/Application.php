@@ -123,8 +123,9 @@ final class Application
         // Listar subdirectorios y videos (solo archivos de video; subtítulos se ven en detalle)
         $videoExts = config('video_extensions', ['mkv', 'mp4']);
         $entries = [];
+        $dirEntries = is_dir($dir) && is_readable($dir) ? scandir($dir) : [];
 
-        foreach (@scandir($dir) ?: [] as $entry) {
+        foreach ($dirEntries ?: [] as $entry) {
             if ($entry === '.' || $entry === '..' || str_starts_with($entry, '.')) {
                 continue;
             }
@@ -166,12 +167,12 @@ final class Application
             if ($media === null) {
                 // Registrar si aún no está en BD
                 $media = new MediaFile();
-                $media->uuid = \App\Services\Library\MediaChangeDetectorService::uuid();
+                $media->uuid = \App\Support\Uuid::generate();
                 $media->path = $path;
                 $media->filename = basename($path);
                 $media->extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-                $media->fileSize = (int) @filesize($path);
-                $media->lastModifiedAt = gmdate('Y-m-d H:i:s', (int) @filemtime($path));
+                $media->fileSize = is_file($path) ? (int) filesize($path) : 0;
+                $media->lastModifiedAt = gmdate('Y-m-d H:i:s', is_file($path) ? (int) filemtime($path) : time());
                 $media->status = MediaFile::STATUS_PENDING;
                 $media->save();
             }

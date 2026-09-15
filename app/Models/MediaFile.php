@@ -85,6 +85,32 @@ final class MediaFile
         return (int) Database::pdo()->query('SELECT COUNT(*) FROM media_files')->fetchColumn();
     }
 
+    /**
+     * Índice ligero path → {id, size, mtime} para comparar cambios en disco
+     * sin hidratar todos los objetos ni cargar subtítulos (evita cargar
+     * toda la tabla en memoria).
+     *
+     * @return array<string, array{id:int, size:int, mtime:?string}>
+     */
+    public static function pathIndex(): array
+    {
+        $rows = Database::pdo()
+            ->query('SELECT id, path, file_size, last_modified_at FROM media_files')
+            ->fetchAll();
+
+        $map = [];
+
+        foreach ($rows as $row) {
+            $map[$row['path']] = [
+                'id' => (int) $row['id'],
+                'size' => (int) $row['file_size'],
+                'mtime' => $row['last_modified_at'],
+            ];
+        }
+
+        return $map;
+    }
+
     public function save(): void
     {
         $now = Database::now();
@@ -101,7 +127,7 @@ final class MediaFile
                 $this->lastAnalyzedAt, $now, $this->id,
             ]);
         } else {
-            $this->uuid ??= self::generateUuid();
+            $this->uuid ??= \App\Support\Uuid::generate();
             $this->createdAt = $now;
             $this->updatedAt = $now;
 
@@ -209,7 +235,7 @@ final class MediaFile
         $baseLower = mb_strtolower(pathinfo($this->filename, PATHINFO_FILENAME));
         $extensions = ['srt', 'ass', 'ssa', 'vtt'];
 
-        $files = @scandir($dir);
+        $files = is_dir($dir) && is_readable($dir) ? scandir($dir) : false;
         if ($files !== false) {
             foreach ($files as $entry) {
                 if ($entry === '.' || $entry === '..') {
@@ -305,15 +331,4 @@ final class MediaFile
         return $m;
     }
 
-    private static function generateUuid(): string
-    {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            random_int(0, 0xffff), random_int(0, 0xffff),
-            random_int(0, 0xffff),
-            random_int(0, 0x0fff) | 0x4000,
-            random_int(0, 0x3fff) | 0x8000,
-            random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
-        );
-    }
 }

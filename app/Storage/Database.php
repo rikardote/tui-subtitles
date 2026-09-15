@@ -11,30 +11,66 @@ use PDO;
  */
 final class Database
 {
+    /** Versión del esquema (PRAGMA user_version). Subir al cambiar el schema. */
+    private const SCHEMA_VERSION = 1;
+
     private static ?PDO $pdo = null;
 
     public static function pdo(): PDO
     {
-        if (self::$pdo === null) {
-            $path = (string) config('database_path');
+        $pdo = self::pdoRaw();
+        self::ensureSchema($pdo);
 
-            if (! is_dir(dirname($path))) {
-                mkdir(dirname($path), 0775, true);
-            }
+        return $pdo;
+    }
 
-            self::$pdo = new PDO('sqlite:' . $path);
-            self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            self::$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-            self::$pdo->exec('PRAGMA journal_mode = WAL;');
-            self::$pdo->exec('PRAGMA foreign_keys = ON;');
+    /**
+     * Aplica el esquema solo si la versión cambió (una vez por proceso).
+     */
+    public static function migrate(): void
+    {
+        self::ensureSchema(self::pdoRaw());
+    }
 
-            self::migrate();
+    private static function ensureSchema(PDO $pdo): void
+    {
+        static $done = false;
+
+        if ($done) {
+            return;
         }
+
+        $done = true;
+        $current = (int) $pdo->query('PRAGMA user_version')->fetchColumn();
+
+        if ($current < self::SCHEMA_VERSION) {
+            self::createSchema($pdo);
+            $pdo->exec('PRAGMA user_version = ' . self::SCHEMA_VERSION);
+        }
+    }
+
+    private static function pdoRaw(): PDO
+    {
+        if (self::$pdo !== null) {
+            return self::$pdo;
+        }
+
+        $path = (string) config('database_path');
+
+        if (! is_dir(dirname($path))) {
+            mkdir(dirname($path), 0775, true);
+        }
+
+        self::$pdo = new PDO('sqlite:' . $path);
+        self::$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        self::$pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        self::$pdo->exec('PRAGMA journal_mode = WAL;');
+        self::$pdo->exec('PRAGMA foreign_keys = ON;');
 
         return self::$pdo;
     }
 
-    public static function migrate(): void
+    public static function createSchema(PDO $pdo): void
     {
         $schema = <<<'SQL'
 CREATE TABLE IF NOT EXISTS media_files (
@@ -102,6 +138,6 @@ SQL;
 
     public static function now(): string
     {
-        return date('Y-m-d H:i:s');
+        return gmdate('Y-m-d H:i:s');
     }
 }

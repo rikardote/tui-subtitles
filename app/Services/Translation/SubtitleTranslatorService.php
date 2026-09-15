@@ -56,7 +56,7 @@ final class SubtitleTranslatorService
             $task->targetLanguage = (string) config('translation.target_language', 'es');
             $task->inputPath = $track?->path ?? $media->path;
             $task->outputPath = $outputPath;
-            $task->startedAt = date('Y-m-d H:i:s');
+            $task->startedAt = gmdate('Y-m-d H:i:s');
             $task->save();
         }
 
@@ -173,7 +173,7 @@ final class SubtitleTranslatorService
             if ($task !== null) {
                 $task->status = ProcessingTask::STATUS_COMPLETED;
                 $task->progress = 100;
-                $task->completedAt = date('Y-m-d H:i:s');
+                $task->completedAt = gmdate('Y-m-d H:i:s');
                 $task->save();
             }
 
@@ -182,7 +182,7 @@ final class SubtitleTranslatorService
             if ($task !== null) {
                 $task->status = ProcessingTask::STATUS_FAILED;
                 $task->errorMessage = $e->getMessage();
-                $task->completedAt = date('Y-m-d H:i:s');
+                $task->completedAt = gmdate('Y-m-d H:i:s');
                 $task->save();
             }
 

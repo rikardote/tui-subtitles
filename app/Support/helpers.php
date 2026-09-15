@@ -57,7 +57,12 @@ function env(string $key, ?string $default = null): ?string
                     continue;
                 }
                 [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
-                $env[trim($k)] = trim($v);
+                $v = trim($v);
+                // Quitar comillas envolventes (valores con espacios)
+                if (strlen($v) >= 2 && $v[0] === '"' && str_ends_with($v, '"')) {
+                    $v = str_replace('\\"', '"', substr($v, 1, -1));
+                }
+                $env[trim($k)] = $v;
             }
         }
 

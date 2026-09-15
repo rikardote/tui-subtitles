@@ -50,7 +50,7 @@ final class SubtitleExtractorService
         $task->sourceLanguage = $track->language ?? $track->languageDetected;
         $task->inputPath = $media->path;
         $task->outputPath = $tmp;
-        $task->startedAt = date('Y-m-d H:i:s');
+        $task->startedAt = gmdate('Y-m-d H:i:s');
         $task->save();
 
         try {
@@ -71,14 +71,14 @@ final class SubtitleExtractorService
 
             $task->status = ProcessingTask::STATUS_COMPLETED;
             $task->progress = 100;
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
 
             return $content;
         } catch (\Throwable $e) {
             $task->status = ProcessingTask::STATUS_FAILED;
             $task->errorMessage = $e->getMessage();
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
 
             throw $e;

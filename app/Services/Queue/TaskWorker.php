@@ -80,13 +80,13 @@ final class TaskWorker
         if (! $media) {
             $task->status = ProcessingTask::STATUS_FAILED;
             $task->errorMessage = 'El archivo de video ya no existe en la base de datos.';
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
             return;
         }
 
         $task->status = ProcessingTask::STATUS_RUNNING;
-        $task->startedAt = date('Y-m-d H:i:s');
+        $task->startedAt = gmdate('Y-m-d H:i:s');
         $task->progress = 0;
         $task->errorMessage = null;
         $task->save();
@@ -134,7 +134,7 @@ final class TaskWorker
                     // Comprobar si la tarea fue cancelada externamente
                     $current = ProcessingTask::findById($task->id);
                     if ($current && $current->status === ProcessingTask::STATUS_CANCELLED) {
-                        throw new \RuntimeException('Tarea cancelada por el usuario.');
+                        throw new \App\Exceptions\TaskCancelledException('Tarea cancelada por el usuario.');
                     }
 
                     $percent = min(99, (int) round(($done / max(1, $total)) * 100));
@@ -152,7 +152,7 @@ final class TaskWorker
             $task->subtitleTrackId = null;
             $task->status = ProcessingTask::STATUS_COMPLETED;
             $task->progress = 100;
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
 
             $this->log("Tarea #{$task->id} completada con éxito: {$outputPath}");
@@ -162,13 +162,14 @@ final class TaskWorker
                 $this->log('  ' . $this->jellyfin->refreshForVideo($media->path));
             }
         } catch (Throwable $e) {
-            $isCancelled = str_contains($e->getMessage(), 'cancelada');
+            // Distinguir una cancelación real (excepción tipada) de un error
+            $isCancelled = $e instanceof \App\Exceptions\TaskCancelledException;
             $task->status = $isCancelled ? ProcessingTask::STATUS_CANCELLED : ProcessingTask::STATUS_FAILED;
             $task->errorMessage = $e->getMessage();
-            $task->completedAt = date('Y-m-d H:i:s');
+            $task->completedAt = gmdate('Y-m-d H:i:s');
             $task->save();
 
-            $this->log("Error en tarea #{$task->id}: " . $e->getMessage());
+            $this->log(($isCancelled ? 'Cancelada' : 'Error en') . " tarea #{$task->id}: " . $e->getMessage());
         }
     }
 

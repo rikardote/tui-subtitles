@@ -555,7 +555,7 @@
                         <tbody class="divide-y divide-dark-800/40">
                             <template x-for="task in tasksList" :key="task.id">
                                 <tr>
-                                    <td class="py-2 px-3 font-mono text-slate-400" x-text="task.created_at"></td>
+                                    <td class="py-2 px-3 font-mono text-slate-400" x-text="formatDate(task.created_at)"></td>
                                     <td class="py-2 px-3 truncate max-w-xs" :title="task.filename" x-text="task.filename"></td>
                                     <td class="py-2 px-3" x-text="task.action_label"></td>
                                     <td class="py-2 px-3" :class="task.status === 'completed' ? 'text-emerald-400' : 'text-rose-400'" x-text="task.status_label"></td>
@@ -777,6 +777,15 @@
                     this.toast.message = msg;
                     this.toast.visible = true;
                     setTimeout(() => { this.toast.visible = false; }, 3000);
+                },
+
+                // Las fechas se guardan en UTC; se muestran en la hora local del navegador
+                formatDate(utc) {
+                    if (!utc) return '';
+                    const d = new Date(String(utc).replace(' ', 'T') + 'Z');
+                    if (isNaN(d)) return utc;
+                    const p = (n) => String(n).padStart(2, '0');
+                    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
                 },
 
                 setFilter(val) {

@@ -121,7 +121,11 @@ final class SubtitleAnalyzerService
         $base = pathinfo($file->filename, PATHINFO_FILENAME);
         $extensions = config('subtitle_extensions', ['srt', 'ass', 'ssa', 'vtt']);
 
-        $files = @scandir($dir);
+        if (! is_dir($dir) || ! is_readable($dir)) {
+            return $tracks;
+        }
+
+        $files = scandir($dir);
 
         if ($files === false) {
             return $tracks;

@@ -18,10 +18,8 @@ final class MediaChangeDetectorService
      */
     public function diff(array $discovered): array
     {
-        $known = [];
-        foreach (MediaFile::all() as $file) {
-            $known[$file->path] = $file;
-        }
+        // Índice ligero (sin hidratar objetos completos ni cargar subtítulos)
+        $known = MediaFile::pathIndex();
 
         $new = [];
         $modified = [];
@@ -36,11 +34,11 @@ final class MediaChangeDetectorService
             }
 
             $file = $known[$path];
-            $lastMtime = $file->lastModifiedAt !== null
-                ? strtotime($file->lastModifiedAt . ' UTC')
+            $lastMtime = $file['mtime'] !== null
+                ? strtotime($file['mtime'] . ' UTC')
                 : null;
 
-            if ($lastMtime === null || abs($lastMtime - $item['mtime']) > 2 || $file->fileSize !== $item['size']) {
+            if ($lastMtime === null || abs($lastMtime - $item['mtime']) > 2 || $file['size'] !== $item['size']) {
                 $modified[] = $item;
                 continue;
             }
@@ -68,7 +66,7 @@ final class MediaChangeDetectorService
         }
 
         $file = new MediaFile();
-        $file->uuid = self::uuid();
+        $file->uuid = \App\Support\Uuid::generate();
         $file->path = $item['path'];
         $file->filename = basename($item['path']);
         $file->extension = strtolower(pathinfo($item['path'], PATHINFO_EXTENSION));
@@ -80,15 +78,4 @@ final class MediaChangeDetectorService
         return $file;
     }
 
-    public static function uuid(): string
-    {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            random_int(0, 0xffff), random_int(0, 0xffff),
-            random_int(0, 0xffff),
-            random_int(0, 0x0fff) | 0x4000,
-            random_int(0, 0x3fff) | 0x8000,
-            random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
-        );
-    }
 }

@@ -1,6 +1,6 @@
 # Subtitle Processor — Web
 
-Aplicación web para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (DeepSeek, Ollama, Meta Muse, OpenAI, Google Translate) e integración con **Jellyfin**.
+Aplicación web para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (DeepSeek, Ollama, OpenAI) e integración con **Jellyfin**.
 
 Diseñada para trabajar directamente sobre las carpetas multimedia del servidor: escanea la biblioteca, analiza las pistas de cada archivo, traduce los subtítulos que faltan y guarda el resultado junto al video (`Pelicula.es.srt`), sin modificar nunca el archivo original.
 
@@ -57,9 +57,7 @@ Ajusta también los volúmenes en `docker-compose.yml` si tus rutas son distinta
 |---|---|---|---|
 | `deepseek` ⭐ | `deepseek-v4-flash` | API key | ~$0.012 / película |
 | `ollama` | `qwen3.5:9b`, `gemma2:2b`… | [Ollama](https://ollama.com) (local/red) | Gratis |
-| `meta-muse` | `muse-spark-1.2` | API key de Meta | ~$0.18 / película |
 | `openai` | `gpt-4o-mini`, Groq, OpenRouter… | API key | Variable |
-| `deep-translator` | Google Translate | pip install deep-translator | Gratis |
 
 ```env
 # DeepSeek (recomendado: barato y de alta calidad)
@@ -72,12 +70,6 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 #TRANSLATION_PROVIDER=ollama
 #OLLAMA_URL=http://localhost:11434
 #OLLAMA_MODEL=qwen3.5:9b
-
-# Meta Muse Spark
-#TRANSLATION_PROVIDER=meta-muse
-#META_MUSE_API_KEY=LLM_...
-#META_MUSE_BASE_URL=https://api.ai.meta.com/v1
-#META_MUSE_MODEL=muse-spark-1.2
 ```
 
 El proveedor se puede cambiar también desde la interfaz: **⚙ Configuración → Proveedor**, y probar la conexión con el botón *Probar*.

@@ -781,8 +781,6 @@ final class ApiController
             'providers' => [
                 ['id' => 'ollama', 'name' => 'Ollama (LLM local en GPU/Red)', 'model_field' => 'ollama_model'],
                 ['id' => 'deepseek', 'name' => 'DeepSeek (Cloud API)', 'model_field' => 'deepseek_model'],
-                ['id' => 'meta-muse', 'name' => 'Meta Muse Spark (Cloud API)', 'model_field' => 'meta_muse_model'],
-                ['id' => 'deep-translator', 'name' => 'Google Translate (Gratis, CLI)', 'model_field' => null],
                 ['id' => 'openai', 'name' => 'OpenAI / OpenRouter / Compatible', 'model_field' => 'openai_model'],
             ],
         ];

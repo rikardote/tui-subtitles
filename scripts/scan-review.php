@@ -52,6 +52,10 @@ $isLikelyEnglish = function (string $text): bool {
         'these', 'those', 'which', 'into', 'over', 'again', 'some', 'most', 'other',
         'only', 'own', 'same', 'than', 'very', 'don', 'cant', 'wont', 'im', 'ive',
         'isnt', 'doesnt', 'didnt', 'its', 'was', 'had', 'did', 'get', 'got', 'going',
+        // Coloquialismos/groserías frecuentes en subtítulos
+        'fuck', 'fucking', 'shit', 'bitch', 'asshole', 'damn', 'hell', 'gonna',
+        'wanna', 'gotta', 'yeah', 'okay', 'hey', 'man', 'guys', 'know', 'like',
+        'right', 'well', 'come', 'give', 'take', 'want', 'need', 'make', 'look',
     ];
 
     $lower = strtolower($text);

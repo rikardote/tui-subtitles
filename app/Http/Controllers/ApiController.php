@@ -549,9 +549,32 @@ final class ApiController
             $results = [$scanner->scanLibrary((string) $library)];
         }
 
+        // Analizar automáticamente los archivos pendientes (nuevos/modificados),
+        // así se conoce su estado real de subtítulos sin intervención manual.
+        /** @var SubtitleAnalyzerService $analyzer */
+        $analyzer = Container::get(SubtitleAnalyzerService::class);
+        $analyzed = 0;
+        $analysisErrors = 0;
+
+        foreach (MediaFile::all(MediaFile::STATUS_PENDING) as $media) {
+            try {
+                $analyzer->analyze($media);
+                $media->status = MediaFile::STATUS_ANALYZED;
+                $media->lastAnalyzedAt = gmdate('Y-m-d H:i:s');
+                $media->save();
+                $analyzed++;
+            } catch (\Throwable $e) {
+                $media->status = MediaFile::STATUS_ERROR;
+                $media->save();
+                $analysisErrors++;
+            }
+        }
+
         return [
             'success' => true,
             'results' => $results,
+            'analyzed' => $analyzed,
+            'analysis_errors' => $analysisErrors,
         ];
     }
 

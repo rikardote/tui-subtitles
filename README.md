@@ -1,6 +1,6 @@
 # Subtitle Processor — Web
 
-Aplicación web para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (DeepSeek, Ollama, OpenAI) e integración con **Jellyfin**.
+Aplicación web para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (DeepSeek, Ollama, OpenAI), compatible con **Jellyfin**.
 
 Diseñada para trabajar directamente sobre las carpetas multimedia del servidor: escanea la biblioteca, analiza las pistas de cada archivo, traduce los subtítulos que faltan y guarda el resultado junto al video (`Pelicula.es.srt`), sin modificar nunca el archivo original.
 
@@ -14,7 +14,7 @@ Diseñada para trabajar directamente sobre las carpetas multimedia del servidor:
 - **Cola de trabajos** con worker en segundo plano y pre-extracción de subtítulos
 - **Revisión manual**: los bloques que salen mal se marcan para corregirlos puntualmente con DeepSeek
 - **Español neutro** (variante latinoamericana, sin formas peninsulares)
-- **Integración con Jellyfin**: sincroniza el catálogo y traduce lo que falta en español
+- **Compatible con Jellyfin**: los subtítulos se guardan junto al video y Jellyfin los detecta automáticamente (sin plugins ni configuración)
 - **Historial** de tareas con progreso y errores
 - **Nunca modifica el video original** y nunca sobrescribe subtítulos existentes
 
@@ -114,22 +114,17 @@ Lista de tareas de traducción/extracción/revisión con estado, progreso y erro
 
 ---
 
-## Integración con Jellyfin
+## Compatible con Jellyfin
 
-**No requiere ningún plugin.** La app guarda los subtítulos junto al video (`Pelicula.es.srt`) y Jellyfin los detecta automáticamente.
+**No requiere ningún plugin ni configuración.** La app guarda los subtítulos junto al video con la convención `Pelicula.es.srt`, y Jellyfin los detecta automáticamente y los ofrece en el reproductor.
 
-Además, la app puede usar el catálogo de Jellyfin como fuente para traducir en masa lo que falte:
-
-```env
-JELLYFIN_URL=http://host.docker.internal:8096   # desde dentro del contenedor
-JELLYFIN_API_KEY=tu-api-key                      # Jellyfin → Dashboard → API Keys
-JELLYFIN_CONTAINER_PREFIX=/data
-JELLYFIN_PATH_MAP=/data/movies=/mnt/disk/media/movies,/data/tvshows=/mnt/disk/media/tv
+```
+/media/movies/Pelicula (2026)/
+├── Pelicula (2026).mkv      ← video original (nunca se modifica)
+└── Pelicula (2026).es.srt   ← subtítulo generado por la app
 ```
 
-> Si la app corre en Docker, usa `host.docker.internal` en lugar de `localhost` para alcanzar Jellyfin (el `docker-compose.yml` ya configura `extra_hosts`).
-
-Desde la web: **⚙ Configuración → Sincronización con Jellyfin**.
+Si quieres que Jellyfin actualice su biblioteca al instante tras generar un subtítulo, basta con lanzar un escaneo de la biblioteca desde su propio panel (o esperar a su escaneo automático).
 
 ---
 
@@ -160,7 +155,6 @@ app/Services/               Lógica de negocio
 ├── Media/                  Extracción de subtítulos, eliminación
 ├── Subtitle/               Análisis, parser SRT, idioma, validación, revisión
 ├── Queue/                  Cola de trabajos + worker en segundo plano
-├── Jellyfin/               Cliente API, mapeo de rutas, sincronización
 └── Translation/            Proveedores (interfaz) + traducción por lotes
 app/Infrastructure/         FFprobe, FFmpeg, ProcessRunner
 app/Models/                 MediaFile, SubtitleTrack, ProcessingTask
@@ -200,7 +194,6 @@ Web → Cola (SQLite) → Worker
 |---|---|
 | Una traducción tarda segundos y queda incompleta | Se seleccionó una pista *forzada* (la app ahora lo evita automáticamente) |
 | "No se pudo conectar con Ollama" | El servidor Ollama está apagado o la URL/red no es alcanzable |
-| Jellyfin no conecta desde el contenedor | Usa `host.docker.internal` en lugar de `localhost` |
 | Una traducción no avanza | Reinicia el worker: `docker restart subtitles-web` (el progreso se conserva por checkpoint) |
 
 ---
@@ -224,5 +217,5 @@ php scripts/repair-subtitles.php <srt_es> <srt_original_en>
 
 - OCR para subtítulos de imagen (PGS/VobSub)
 - Salida en formato ASS (conservando estilos avanzados)
-- Plugin nativo de Jellyfin (acción "Traducir" dentro del reproductor)
 - Notificaciones al finalizar traducciones largas
+- Botón "Traducir" dentro de Jellyfin (plugin)

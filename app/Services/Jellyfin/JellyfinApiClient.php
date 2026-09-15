@@ -11,7 +11,7 @@ use RuntimeException;
  * Documentación: https://api.jellyfin.org/
  *
  * Se autentica con una API key (Dashboard → Advanced → API Keys)
- * mediante la cabecera X-Emby-Token.
+ * mediante la cabecera Authorization: MediaBrowser Token=.
  */
 final class JellyfinApiClient
 {
@@ -99,7 +99,7 @@ final class JellyfinApiClient
             CURLOPT_TIMEOUT => 60,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_HTTPHEADER => [
-                'X-Emby-Token: ' . $this->apiKey,
+                'Authorization: MediaBrowser Token=' . $this->apiKey,
                 'Accept: application/json',
             ],
         ]);
@@ -132,6 +132,85 @@ final class JellyfinApiClient
         }
 
         return $decoded;
+    }
+
+    /**
+     * Refresca un item concreto (re-lee sus archivos locales → detecta
+     * subtítulos externos nuevos).
+     */
+    public function refreshItem(string $itemId): bool
+    {
+        $url = $this->baseUrl . '/Items/' . rawurlencode($itemId) . '/Refresh'
+            . '?metadataRefreshMode=None&imageRefreshMode=None'
+            . '&replaceAllImages=false&replaceAllMetadata=false';
+
+        return $this->post($url);
+    }
+
+    /**
+     * Refresca todas las bibliotecas de Jellyfin (escaneo incremental).
+     * Útil como respaldo cuando no se localiza el item concreto.
+     */
+    public function refreshLibrary(): bool
+    {
+        return $this->post($this->baseUrl . '/Library/Refresh');
+    }
+
+    /**
+     * Busca el item de Jellyfin cuyo archivo corresponde a una ruta del host.
+     */
+    public function findItemByHostPath(string $hostPath, JellyfinPathMapper $mapper): ?string
+    {
+        $containerPath = $mapper->toContainerPath($hostPath);
+
+        if ($containerPath === null) {
+            return null;
+        }
+
+        // Normalizar para comparar (Jellyfin puede usar \ en Windows)
+        $target = str_replace('\\', '/', $containerPath);
+
+        foreach ($this->items('Movie,Episode') as $item) {
+            if ($item['path'] === null) {
+                continue;
+            }
+
+            if (str_replace('\\', '/', $item['path']) === $target) {
+                return $item['id'];
+            }
+        }
+
+        return null;
+    }
+
+    /** Ejecuta un POST simple y devuelve true si la respuesta es 2xx. */
+    private function post(string $url): bool
+    {
+        $this->assertConfigured();
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => '',
+            CURLOPT_TIMEOUT => 60,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_HTTPHEADER => [
+                'Authorization: MediaBrowser Token=' . $this->apiKey,
+                'Accept: application/json',
+            ],
+        ]);
+
+        curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error !== '') {
+            throw new RuntimeException("No se pudo conectar con Jellyfin ({$url}): {$error}");
+        }
+
+        return $status >= 200 && $status < 300;
     }
 
     private function assertConfigured(): void

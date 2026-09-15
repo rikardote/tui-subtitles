@@ -64,6 +64,29 @@ final class JellyfinPathMapper
         return $best;
     }
 
+    /**
+     * Convierte una ruta del host a ruta del contenedor de Jellyfin.
+     * (Inverso de toHostPath; necesario para localizar el item en Jellyfin.)
+     */
+    public function toContainerPath(string $hostPath): ?string
+    {
+        $normalized = str_replace('\\', '/', $hostPath);
+
+        $best = null;
+        $bestLen = 0;
+
+        foreach ($this->map as $containerPrefix => $hostRoot) {
+            $prefix = rtrim($hostRoot, '/') . '/';
+
+            if (str_starts_with($normalized, $prefix) && strlen($prefix) > $bestLen) {
+                $best = rtrim($containerPrefix, '/') . '/' . substr($normalized, strlen($prefix));
+                $bestLen = strlen($prefix);
+            }
+        }
+
+        return $best;
+    }
+
     /** @return array<string, string> Mapa contenedor → host (para depuración). */
     public function map(): array
     {

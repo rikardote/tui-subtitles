@@ -118,6 +118,7 @@ final class Container
                 self::get(SubtitleTranslatorService::class),
                 self::get(SubtitleFilenameService::class),
                 self::get(SubtitleAnalyzerService::class),
+                self::get(\App\Services\Jellyfin\JellyfinNotifier::class),
             ),
             JellyfinApiClient::class => new JellyfinApiClient(
                 (string) config('jellyfin.url', ''),
@@ -134,6 +135,10 @@ final class Container
                 self::get(MediaChangeDetectorService::class),
                 self::get(SubtitleAnalyzerService::class),
                 self::get(SubtitleExtractorService::class),
+            ),
+            \App\Services\Jellyfin\JellyfinNotifier::class => new \App\Services\Jellyfin\JellyfinNotifier(
+                self::get(JellyfinApiClient::class),
+                self::get(JellyfinPathMapper::class),
             ),
             default => throw new \InvalidArgumentException("Servicio no registrado: {$class}"),
         };

@@ -14,7 +14,7 @@ Diseñada para trabajar directamente sobre las carpetas multimedia del servidor:
 - **Cola de trabajos** con worker en segundo plano y pre-extracción de subtítulos
 - **Revisión manual**: los bloques que salen mal se marcan para corregirlos puntualmente con DeepSeek
 - **Español neutro** (variante latinoamericana, sin formas peninsulares)
-- **Compatible con Jellyfin**: los subtítulos se guardan junto al video y Jellyfin los detecta automáticamente (sin plugins ni configuración)
+- **Compatible con Jellyfin**: los subtítulos se guardan junto al video y Jellyfin los detecta; opcionalmente la app avisa a Jellyfin al terminar para que aparezcan al instante
 - **Historial** de tareas con progreso y errores
 - **Nunca modifica el video original** y nunca sobrescribe subtítulos existentes
 
@@ -116,7 +116,7 @@ Lista de tareas de traducción/extracción/revisión con estado, progreso y erro
 
 ## Compatible con Jellyfin
 
-**No requiere ningún plugin ni configuración.** La app guarda los subtítulos junto al video con la convención `Pelicula.es.srt`, y Jellyfin los detecta automáticamente y los ofrece en el reproductor.
+**No requiere ningún plugin ni configuración obligatoria.** La app guarda los subtítulos junto al video con la convención `Pelicula.es.srt`, y Jellyfin los detecta automáticamente.
 
 ```
 /media/movies/Pelicula (2026)/
@@ -124,7 +124,28 @@ Lista de tareas de traducción/extracción/revisión con estado, progreso y erro
 └── Pelicula (2026).es.srt   ← subtítulo generado por la app
 ```
 
-Si quieres que Jellyfin actualice su biblioteca al instante tras generar un subtítulo, basta con lanzar un escaneo de la biblioteca desde su propio panel (o esperar a su escaneo automático).
+### Refresco automático (opcional, recomendado)
+
+Para que el subtítulo aparezca en Jellyfin **al instante** (sin esperar su escaneo periódico), la app puede avisar a Jellyfin al terminar cada traducción: localiza el item y lo refresca.
+
+Solo hay que configurar la conexión en `.env`:
+
+```env
+JELLYFIN_URL=http://host.docker.internal:8096   # desde dentro del contenedor
+JELLYFIN_API_KEY=tu-api-key                      # Jellyfin → Dashboard → API Keys
+JELLYFIN_PATH_MAP=/data/movies=/mnt/disk/media/movies,/data/tvshows=/mnt/disk/media/tv
+```
+
+> `JELLYFIN_PATH_MAP` traduce las rutas internas de Jellyfin (`/data/...`) a las del host, y también permite el camino inverso para localizar cada item.
+
+En el log del worker verás:
+
+```
+✓ Tarea #207 completada con éxito: .../Pelicula.es.srt
+  Jellyfin: item abc123 refrescado (subtítulo visible)
+```
+
+Si no se configura, no pasa nada: Jellyfin detectará el subtítulo en su siguiente escaneo.
 
 ---
 
@@ -155,6 +176,7 @@ app/Services/               Lógica de negocio
 ├── Media/                  Extracción de subtítulos, eliminación
 ├── Subtitle/               Análisis, parser SRT, idioma, validación, revisión
 ├── Queue/                  Cola de trabajos + worker en segundo plano
+├── Jellyfin/               Cliente API + refresco automático del item
 └── Translation/            Proveedores (interfaz) + traducción por lotes
 app/Infrastructure/         FFprobe, FFmpeg, ProcessRunner
 app/Models/                 MediaFile, SubtitleTrack, ProcessingTask

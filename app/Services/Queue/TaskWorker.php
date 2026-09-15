@@ -26,6 +26,7 @@ final class TaskWorker
         private readonly SubtitleTranslatorService $translator,
         private readonly SubtitleFilenameService $filenameService,
         private readonly SubtitleAnalyzerService $analyzer,
+        private readonly \App\Services\Jellyfin\JellyfinNotifier $jellyfin,
     ) {
     }
 
@@ -155,6 +156,11 @@ final class TaskWorker
             $task->save();
 
             $this->log("Tarea #{$task->id} completada con éxito: {$outputPath}");
+
+            // Avisar a Jellyfin para que detecte el subtítulo sin esperar su escaneo
+            if ($this->jellyfin->isConfigured()) {
+                $this->log('  ' . $this->jellyfin->refreshForVideo($media->path));
+            }
         } catch (Throwable $e) {
             $isCancelled = str_contains($e->getMessage(), 'cancelada');
             $task->status = $isCancelled ? ProcessingTask::STATUS_CANCELLED : ProcessingTask::STATUS_FAILED;

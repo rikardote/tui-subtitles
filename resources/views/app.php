@@ -278,10 +278,19 @@
                                             </template>
                                             <template x-if="folder.has_spanish < folder.total_files">
                                                 <div class="flex items-center space-x-1.5">
-                                                    <span class="text-[11px] text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                                                        <span x-text="folder.total_files - folder.has_spanish"></span> pendientes
-                                                    </span>
-                                                    <button @click.stop="translateFolderBatch(folder)"
+                                                    <!-- Pendientes reales (analizados, sin español) -->
+                                                    <template x-if="(folder.total_files - folder.has_spanish - (folder.pending_analysis || 0)) > 0">
+                                                        <span class="text-[11px] text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                                            <span x-text="folder.total_files - folder.has_spanish - (folder.pending_analysis || 0)"></span> sin subtítulo
+                                                        </span>
+                                                    </template>
+                                                    <!-- Por analizar (aún no se sabe si tienen subs) -->
+                                                    <template x-if="(folder.pending_analysis || 0) > 0">
+                                                        <span class="text-[11px] text-sky-400 font-mono bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20" title="Archivos sin analizar: abre uno para analizarlo">
+                                                            <span x-text="folder.pending_analysis"></span> por analizar
+                                                        </span>
+                                                    </template>
+                                                    <button x-show="(folder.total_files - folder.has_spanish - (folder.pending_analysis || 0)) > 0" @click.stop="translateFolderBatch(folder)"
                                                             class="px-2 py-0.5 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded text-[10px] font-medium transition flex items-center space-x-1"
                                                             title="Encolar todos los episodios pendientes de esta carpeta">
                                                         <i data-lucide="play" class="w-2.5 h-2.5"></i>

@@ -906,6 +906,7 @@ final class ApiController
                     'total_files' => 0,
                     'has_spanish' => 0,
                     'review_pending' => 0,
+                    'pending_analysis' => 0,
                 ];
             }
 
@@ -917,10 +918,12 @@ final class ApiController
                     'total_files' => 0,
                     'has_spanish' => 0,
                     'review_pending' => 0,
+                    'pending_analysis' => 0,
                 ];
             }
 
             $reviewCount = $this->reviewPendingCount($media);
+            $needsAnalysis = $media->status === MediaFile::STATUS_PENDING;
 
             $tree[$libName]['total_files']++;
             $tree[$libName]['folders'][$folderPath]['total_files']++;
@@ -931,6 +934,10 @@ final class ApiController
             if ($reviewCount > 0) {
                 $tree[$libName]['review_pending'] += $reviewCount;
                 $tree[$libName]['folders'][$folderPath]['review_pending'] += $reviewCount;
+            }
+            if ($needsAnalysis) {
+                $tree[$libName]['pending_analysis']++;
+                $tree[$libName]['folders'][$folderPath]['pending_analysis']++;
             }
 
             $tree[$libName]['folders'][$folderPath]['files'][] = [

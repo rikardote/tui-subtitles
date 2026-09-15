@@ -1,199 +1,236 @@
-# Subtitle Processor (Web UI & TUI)
+# Subtitle Processor — Web
 
-Aplicación moderna para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (Ollama, DeepSeek, Meta Muse, OpenAI, Google Translate) e integración con **Jellyfin**.
+Aplicación web para **detección, extracción y traducción automática de subtítulos** con Inteligencia Artificial (DeepSeek, Ollama, Meta Muse, OpenAI, Google Translate) e integración con **Jellyfin**.
 
----
-
-## 🚀 Despliegue con Docker (Recomendado para Web)
-
-El contenedor incluye **PHP 8.3, FFmpeg, FFprobe y SQLite**, con acceso a tus discos multimedia y a tu servidor de Ollama / APIs de IA.
-
-```bash
-# Iniciar contenedor Web en segundo plano
-docker compose up -d
-
-# Abrir en el navegador:
-http://localhost:8585
-```
+Diseñada para trabajar directamente sobre las carpetas multimedia del servidor: escanea la biblioteca, analiza las pistas de cada archivo, traduce los subtítulos que faltan y guarda el resultado junto al video (`Pelicula.es.srt`), sin modificar nunca el archivo original.
 
 ---
 
-## 💻 Ejecución Nativa (Sin Docker)
+## Características
+
+- **Escaneo automático** de la biblioteca (registra archivos nuevos y modificados)
+- **Análisis con FFprobe** de cada video: pistas internas, subtítulos externos y detección de idioma
+- **Traducción con IA** por lotes con contexto entre bloques (frases continuadas naturales)
+- **Cola de trabajos** con worker en segundo plano y pre-extracción de subtítulos
+- **Revisión manual**: los bloques que salen mal se marcan para corregirlos puntualmente con DeepSeek
+- **Español neutro** (variante latinoamericana, sin formas peninsulares)
+- **Integración con Jellyfin**: sincroniza el catálogo y traduce lo que falta en español
+- **Historial** de tareas con progreso y errores
+- **Nunca modifica el video original** y nunca sobrescribe subtítulos existentes
+
+---
+
+## 🚀 Despliegue con Docker (recomendado)
+
+El contenedor incluye **PHP 8.3, FFmpeg, FFprobe y SQLite**, con acceso a tus discos multimedia y a los proveedores de IA.
 
 ```bash
-# Iniciar Servidor Web
-./bin/serve           # Disponible en http://localhost:8585
+# Clonar el repositorio
+git clone git@github.com:rikardote/tui-subtitles.git
+cd tui-subtitles
 
-# O usar la interfaz de consola TUI
-./bin/subtitles        # TUI interactiva en terminal
-./bin/jellyfin-sync    # Sincronización automática de Jellyfin
-./bin/scan --analyze   # Escaneo + análisis FFprobe
+# Copiar la configuración de ejemplo y editarla
+cp .env.example .env
+
+# Iniciar
+docker compose up -d --build
 ```
 
-### TUI
+Abrir en el navegador: **http://localhost:8585**
 
-```
-¿Qué desea hacer?
-❯ Explorar biblioteca
-  Escanear biblioteca
-  Ver archivos pendientes
-  Ver historial
-  Configuración
-  Salir
-```
+### Carpetas multimedia
 
-- **Explorar**: navega solo dentro de las rutas autorizadas; selecciona un
-  video y la app lo analiza con FFprobe (pistas internas + subtítulos
-  externos). Permite **extraer** o **traducir al español** cada pista.
-- **Escanear**: escaneo manual de una biblioteca o todas.
-- **Pendientes**: archivos registrados que aún no se han analizado.
-- **Historial**: tareas de procesamiento (extracción/traducción) con errores.
-
-## Configuración
-
-**Carpetas multimedia** → `.env` (o `config/app.php` → `media_paths`):
+Edita las rutas en `.env` (deben existir en el host; se montan en el contenedor):
 
 ```env
-MEDIA_PATH_MOVIES=/media/Movies
-MEDIA_PATH_TV=/media/TV
+MEDIA_PATH_MOVIES=/mnt/disk/media/movies
+MEDIA_PATH_TV=/mnt/disk/media/tv
 ```
 
-**Modelo de IA de traducción** → `TRANSLATION_PROVIDER` en `.env`,
-o desde la TUI: *Configuración → Cambiar proveedor/modelo*:
+Ajusta también los volúmenes en `docker-compose.yml` si tus rutas son distintas.
 
-| Proveedor | Modelo | Requisitos | Coste |
+---
+
+## Proveedores de traducción
+
+| Proveedor | Modelo | Requisitos | Coste aproximado |
 |---|---|---|---|
-| `deepseek` | `deepseek-chat` | API key de DeepSeek | ~$0.045/película |
-| `meta-muse` | `muse-spark-1.2` | API key de Meta Model API | **~$0.01/película** (Contributor) |
-| `deep-translator` | Google Translate (automático) | pip install deep-translator | Gratis |
-| `ollama` | `gemma2:2b`, `qwen2.5`… | [Ollama](https://ollama.com) + modelo descargado | Gratis, offline |
-| `openai` | `gpt-4o-mini`, o cualquier API compatible (Groq, OpenRouter…) | API key | De pago / freemium |
+| `deepseek` ⭐ | `deepseek-v4-flash` | API key | ~$0.012 / película |
+| `ollama` | `qwen3.5:9b`, `gemma2:2b`… | [Ollama](https://ollama.com) (local/red) | Gratis |
+| `meta-muse` | `muse-spark-1.2` | API key de Meta | ~$0.18 / película |
+| `openai` | `gpt-4o-mini`, Groq, OpenRouter… | API key | Variable |
+| `deep-translator` | Google Translate | pip install deep-translator | Gratis |
 
 ```env
-TRANSLATION_PROVIDER=meta-muse
-META_MUSE_API_KEY=LLM_...
-META_MUSE_BASE_URL=https://api.ai.meta.com/v1
-META_MUSE_MODEL=muse-spark-1.2
-
-# o bien:
+# DeepSeek (recomendado: barato y de alta calidad)
 TRANSLATION_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-...
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-v4-flash
 
-# o bien:
-TRANSLATION_PROVIDER=ollama
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=gemma2:2b
+# Ollama local (gratis, offline)
+#TRANSLATION_PROVIDER=ollama
+#OLLAMA_URL=http://localhost:11434
+#OLLAMA_MODEL=qwen3.5:9b
+
+# Meta Muse Spark
+#TRANSLATION_PROVIDER=meta-muse
+#META_MUSE_API_KEY=LLM_...
+#META_MUSE_BASE_URL=https://api.ai.meta.com/v1
+#META_MUSE_MODEL=muse-spark-1.2
 ```
 
-Para instalar un modelo local con Ollama:
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:7b
-```
+El proveedor se puede cambiar también desde la interfaz: **⚙ Configuración → Proveedor**, y probar la conexión con el botón *Probar*.
 
-Resto de variables:
+---
+
+## Uso de la interfaz
+
+### Dashboard
+Resumen de la biblioteca: total de archivos, cuántos ya tienen español, cuántos faltan, proveedor activo y tareas recientes.
+
+### Explorar biblioteca
+Dos vistas para navegar las carpetas configuradas:
+
+- **Árbol**: bibliotecas → carpetas → archivos, con el estado de cada uno
+- **Lista**: búsqueda y filtros (con/sin español), con paginación
+
+Cada archivo muestra su estado:
+
+| Indicador | Significado |
+|---|---|
+| 🟢 **Español** | Ya tiene subtítulos en español |
+| 🟡 **N sin subtítulo** | Analizado y sin español → traducible |
+| 🔵 **N por analizar** | Aún sin analizar (la app todavía no sabe qué pistas tiene) |
+| ⚠ **N a revisar** | Tiene bloques deficientes pendientes de corrección |
+
+### Traducir
+- **Individual**: botón *Traducir* en el archivo (encola el trabajo)
+- **Por carpeta**: botón *Encolar todos* (traduce los pendientes de esa carpeta)
+- La pista se selecciona automáticamente: prefiere la **completa** (normal → SDH) y **nunca** una pista *forzada*
+- El progreso se ve en tiempo real en la barra superior
+
+### Revisión de bloques deficientes
+Cuando la IA no logra traducir bien un bloque (queda en inglés, devuelve basura o gasta el razonamiento), el bloque se **marca automáticamente** y el archivo muestra un aviso ámbar.
+
+En el detalle del archivo:
+1. Pulsa **Ver bloques problemáticos** para inspeccionar qué falló (número, motivo y texto original)
+2. Pulsa **Revisar con DeepSeek** para corregir solo esos bloques (usa DeepSeek de forma puntual, independiente del proveedor activo)
+
+### Historial
+Lista de tareas de traducción/extracción/revisión con estado, progreso y errores.
+
+---
+
+## Integración con Jellyfin
+
+**No requiere ningún plugin.** La app guarda los subtítulos junto al video (`Pelicula.es.srt`) y Jellyfin los detecta automáticamente.
+
+Además, la app puede usar el catálogo de Jellyfin como fuente para traducir en masa lo que falte:
+
 ```env
-FFMPEG_BIN=/usr/bin/ffmpeg
-FFPROBE_BIN=/usr/bin/ffprobe
+JELLYFIN_URL=http://host.docker.internal:8096   # desde dentro del contenedor
+JELLYFIN_API_KEY=tu-api-key                      # Jellyfin → Dashboard → API Keys
+JELLYFIN_CONTAINER_PREFIX=/data
+JELLYFIN_PATH_MAP=/data/movies=/mnt/disk/media/movies,/data/tvshows=/mnt/disk/media/tv
+```
+
+> Si la app corre en Docker, usa `host.docker.internal` en lugar de `localhost` para alcanzar Jellyfin (el `docker-compose.yml` ya configura `extra_hosts`).
+
+Desde la web: **⚙ Configuración → Sincronización con Jellyfin**.
+
+---
+
+## Escaneo automático
+
+El contenedor ejecuta un escaneo **cada 15 minutos** que registra y **analiza** los archivos nuevos/modificados, de modo que el estado de subtítulos siempre está al día.
+
+```env
 SCAN_INTERVAL_MINUTES=15
 ```
+
+También puedes lanzarlo manualmente desde la web (botón *Escanear*) o por consola:
+
+```bash
+docker exec subtitles-web php /app/bin/scan --analyze
+```
+
+---
 
 ## Arquitectura
 
 ```
-bin/subtitles              Punto de entrada TUI
-app/Tui/Application.php    Menús y flujos (solo interacción)
-app/Services/              Lógica de negocio (reutilizable en web)
-├── Library/               Rutas, descubrimiento, escaneo, diff
-├── Media/                 Extracción de subtítulos (FFmpeg)
-├── Subtitle/              Análisis, parser, idioma, validación, nombres
-├── Jellyfin/              Cliente API REST, mapeo rutas contenedor→host,
-│                          sincronización del catálogo
-└── Translation/           Proveedor (interfaz), traducción por bloques
-app/Infrastructure/        FFprobe, FFmpeg, ProcessRunner
-app/Models/                MediaFile, SubtitleTrack, ProcessingTask
-app/Storage/Database.php   SQLite (PDO) + migraciones
+public/index.php            Front controller + rutas de la API
+resources/views/app.php     Interfaz web (Alpine.js + Tailwind)
+app/Http/Controllers/       ApiController (endpoints REST)
+app/Services/               Lógica de negocio
+├── Library/                Rutas, descubrimiento, escaneo, detección de cambios
+├── Media/                  Extracción de subtítulos, eliminación
+├── Subtitle/               Análisis, parser SRT, idioma, validación, revisión
+├── Queue/                  Cola de trabajos + worker en segundo plano
+├── Jellyfin/               Cliente API, mapeo de rutas, sincronización
+└── Translation/            Proveedores (interfaz) + traducción por lotes
+app/Infrastructure/         FFprobe, FFmpeg, ProcessRunner
+app/Models/                 MediaFile, SubtitleTrack, ProcessingTask
+app/Storage/Database.php    SQLite (PDO) + migraciones
+bin/worker                  Worker de la cola (segundo plano)
+bin/scan                    Escaneo no interactivo (cron / entrypoint)
+```
+
+### Flujo de traducción
+
+```
+Web → Cola (SQLite) → Worker
+                        │
+                        ├─ 1. Extrae el subtítulo (FFmpeg)  ← se pre-extrae mientras
+                        │                                      traduce el anterior
+                        ├─ 2. Traduce por lotes con contexto
+                        │     (marca los bloques que fallan)
+                        ├─ 3. Valida el SRT
+                        └─ 4. Guarda junto al video y registra en el historial
 ```
 
 ### Decisiones clave
 
-- **Nunca se modifica el video original.** Solo se crean archivos nuevos
-  junto al video: `Pelicula.es.srt`.
-- **Los timestamps se preservan**: la traducción trabaja por bloques y solo
-  cambia el texto.
-- **Traducción desacoplada**: `TranslationProviderInterface`; el proveedor
-  inicial es `deep-translator` (gratuito). Se pueden añadir OpenAI/DeepL
-  implementando la interfaz.
+- **El video original nunca se modifica.** Solo se crean archivos nuevos (`Pelicula.es.srt`).
+- **Los timestamps se preservan**: la traducción trabaja por bloques y solo cambia el texto.
+- **Traducción desacoplada**: `TranslationProviderInterface` — cambiar de proveedor es configuración, no código.
+- **Pistas forzadas ignoradas**: si se selecciona una pista *forced* (solo frases especiales), se usa automáticamente la pista completa.
 - **Detección de idioma en 3 niveles**: metadata → título → contenido.
-- **Protección de archivos en copia**: el diff ignora variaciones de tamaño/mtime
-  (< 2 s) y el escaneo automático es incremental.
-- **Preparado para Jobs/Queue**: los servicios son independientes de la TUI;
-  `bin/scan` ya es no interactivo para cron.
+- **Marcadores y basura protegidos**: los marcadores (`[Spanish]`, `-`) se conservan y las respuestas de error de la API se rechazan.
+- **Anti-duplicados**: una transacción exclusiva evita encolar dos veces el mismo archivo.
 
-## Integración con Jellyfin (Docker) ⭐
+---
 
-**No se necesita ningún plugin en Jellyfin.** La app genera `Pelicula.es.srt`
-junto al video; Jellyfin detecta automáticamente los subtítulos externos
-con esa convención y los ofrece en el reproductor.
+## Solución de problemas
 
-La app corre en el **host** y lee el catálogo de Jellyfin (contenedor) vía
-API REST. Las rutas del contenedor (`/data/movies/...`) se traducen a rutas
-del host (`/mnt/disk2tb/data/media/movies/...`) con un mapa configurable.
+| Síntoma | Causa habitual |
+|---|---|
+| Una traducción tarda segundos y queda incompleta | Se seleccionó una pista *forzada* (la app ahora lo evita automáticamente) |
+| "No se pudo conectar con Ollama" | El servidor Ollama está apagado o la URL/red no es alcanzable |
+| Jellyfin no conecta desde el contenedor | Usa `host.docker.internal` en lugar de `localhost` |
+| Una traducción no avanza | Reinicia el worker: `docker restart subtitles-web` (el progreso se conserva por checkpoint) |
 
-### Configuración
+---
 
-```env
-JELLYFIN_URL=http://localhost:8096
-# API key: Dashboard de Jellyfin → Advanced → API Keys
-JELLYFIN_API_KEY=tu-api-key
-JELLYFIN_CONTAINER_PREFIX=/data
-# Mapa contenedor→host (si vacío se deduce por basename de media_paths)
-JELLYFIN_PATH_MAP=/data/movies=/mnt/disk2tb/data/media/movies,/data/tvshows=/mnt/disk2tb/data/media/tv
-```
-
-### Uso
+## Scripts de mantenimiento
 
 ```bash
-./bin/jellyfin-sync --check          # verifica conexión y mapa de rutas
-./bin/jellyfin-sync --dry-run        # muestra qué se traduciría (no traduce)
-./bin/jellyfin-sync --limit=10       # solo 10 ítems (pruebas)
-./bin/jellyfin-sync --type=Movie     # solo películas
-./bin/jellyfin-sync --type=Episode   # solo episodios
-./bin/jellyfin-sync                  # traduce todo lo pendiente
+# Detectar subtítulos con bloques deficientes (crea los avisos)
+php scripts/scan-review.php --apply
+
+# Revisar/corregir los bloques marcados (usa DeepSeek puntualmente)
+php scripts/review-all.php
+
+# Reparar un SRT concreto desde el original en inglés
+php scripts/repair-subtitles.php <srt_es> <srt_original_en>
 ```
 
-Cron sugerido (una vez al día):
+---
 
-```bash
-0 3 * * * /home/usuario/subtitles/bin/jellyfin-sync >> /home/usuario/subtitles/storage/logs/jellyfin-sync.log 2>&1
-```
+## Hoja de ruta
 
-El sync por ítem: registra el archivo, lo analiza con FFprobe si falta,
-comprueba si ya tiene español (lo omite), elige la mejor pista fuente
-(prefiere inglés en texto, interna o externa) y la extrae y traduce con
-el proveedor configurado (`TRANSLATION_PROVIDER`).
-
-## Scheduler (escaneo automático)
-
-```bash
-crontab -e
-# cada 15 minutos (ajustar ruta)
-*/15 * * * * /home/usuario/subtitles/bin/scan --analyze >> /home/usuario/subtitles/storage/logs/scan.log 2>&1
-```
-
-## Pruebas
-
-```bash
-php scripts/smoke-test.php   # escaneo, análisis, idioma, parser, validador
-php scripts/tui-test.php     # TUI con teclas simuladas
-```
-
-## Hoja de ruta (fuera de la PoC)
-
-- Interfaz web (Livewire) reutilizando los servicios.
-- OCR para subtítulos de imagen (PGS/VobSub).
-- Proveedores de traducción adicionales (OpenAI, DeepL, LLM local).
-- Procesamiento masivo con confirmación y colas.
-- Plugin nativo de Jellyfin en C# (requiere .NET SDK; hoy la integración
-  por API + subtítulos externos cubre el caso de uso sin compilar nada).
+- OCR para subtítulos de imagen (PGS/VobSub)
+- Salida en formato ASS (conservando estilos avanzados)
+- Plugin nativo de Jellyfin (acción "Traducir" dentro del reproductor)
+- Notificaciones al finalizar traducciones largas

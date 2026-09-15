@@ -47,6 +47,11 @@ final class SubtitleAnalyzerService
             $track->save();
         }
 
+        // El cache de pistas del objeto quedó obsoleto: invalidarlo para que
+        // la siguiente consulta (p.ej. bestEnglishTextTrack en el worker)
+        // lea las pistas recién creadas.
+        $file->clearTracksCache();
+
         return ['internal' => $internal, 'external' => $external];
     }
 

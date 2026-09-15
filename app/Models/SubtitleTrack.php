@@ -47,6 +47,34 @@ final class SubtitleTrack
         return array_map(fn (array $row) => self::fromRow($row), $stmt->fetchAll());
     }
 
+    /**
+     * Carga las pistas de múltiples archivos en una sola query.
+     *
+     * @param  int[]  $mediaIds
+     * @return array<int, self[]>  Indexado por media_file_id
+     */
+    public static function forMediaFiles(array $mediaIds): array
+    {
+        if ($mediaIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($mediaIds), '?'));
+        $stmt = Database::pdo()->prepare(
+            "SELECT * FROM subtitle_tracks WHERE media_file_id IN ({$placeholders}) ORDER BY
+                CASE source_type WHEN 'external' THEN 0 ELSE 1 END,
+                stream_index ASC, id ASC"
+        );
+        $stmt->execute(array_values($mediaIds));
+
+        $grouped = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $grouped[(int) $row['media_file_id']][] = self::fromRow($row);
+        }
+
+        return $grouped;
+    }
+
     public static function findById(int $id): ?self
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM subtitle_tracks WHERE id = ?');
@@ -150,7 +178,7 @@ final class SubtitleTrack
         return ! $this->isTextBased;
     }
 
-    private static function fromRow(array $row): self
+    public static function fromRow(array $row): self
     {
         $t = new self();
         $t->id = (int) $row['id'];

@@ -68,10 +68,6 @@ final class ProcessingTask
     {
         $now = Database::now();
 
-        if ($this->subtitleTrackId !== null && SubtitleTrack::findById($this->subtitleTrackId) === null) {
-            $this->subtitleTrackId = null;
-        }
-
         if ($this->id > 0) {
             $sql = 'UPDATE processing_tasks SET
                         media_file_id = ?, subtitle_track_id = ?,

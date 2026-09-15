@@ -153,6 +153,9 @@ final class SubtitleExtractorService
         $generated->isForced = $track->isForced;
         $generated->save();
 
+        // El objeto en memoria ya no refleja la BD: invalidar cache de pistas
+        $media->clearTracksCache();
+
         $media->status = MediaFile::STATUS_PROCESSED;
         $media->save();
 

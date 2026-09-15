@@ -31,6 +31,9 @@ final class MediaFile
     public string $createdAt = '';
     public string $updatedAt = '';
 
+    /** Caché de pistas para evitar múltiples queries dentro del mismo request. */
+    private ?array $tracksCache = null;
+
     public static function findById(int $id): ?self
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM media_files WHERE id = ?');
@@ -116,9 +119,62 @@ final class MediaFile
         }
     }
 
+    /**
+     * Pistas del archivo. Se cachea en memoria para que llamadas
+     * sucesivas (hasSpanish, englishTracks, reviewPendingCount…) no
+     * vuelvan a la base de datos dentro del mismo request.
+     */
     public function tracks(): array
     {
-        return SubtitleTrack::forMediaFile($this->id);
+        return $this->tracksCache ??= SubtitleTrack::forMediaFile($this->id);
+    }
+
+    /**
+     * Pre-inyecta las pistas desde fuera (batch loading).
+     * Después de llamar esto, tracks() devolverá el array inyectado
+     * sin tocar la BD.
+     *
+     * @param SubtitleTrack[] $tracks
+     */
+    public function setTracksCache(array $tracks): void
+    {
+        $this->tracksCache = $tracks;
+    }
+
+    /**
+     * Invalida el cache de pistas (obligatorio tras analizar, crear o borrar
+     * pistas, para que la siguiente consulta lea el estado real de la BD).
+     */
+    public function clearTracksCache(): void
+    {
+        $this->tracksCache = null;
+    }
+
+    /**
+     * Carga múltiples archivos por sus IDs en una sola query.
+     *
+     * @param  int[]  $ids
+     * @return array<int, self>  Indexado por id
+     */
+    public static function findByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::pdo()->prepare(
+            "SELECT * FROM media_files WHERE id IN ({$placeholders})"
+        );
+        $stmt->execute(array_values($ids));
+
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $media = self::fromRow($row);
+            $map[$media->id] = $media;
+        }
+
+        return $map;
     }
 
     /** @return SubtitleTrack[] Subtítulos externos existentes junto al video */
@@ -230,7 +286,7 @@ final class MediaFile
         return dirname($this->path);
     }
 
-    private static function fromRow(array $row): self
+    public static function fromRow(array $row): self
     {
         $m = new self();
         $m->id = (int) $row['id'];

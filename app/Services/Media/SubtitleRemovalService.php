@@ -41,6 +41,9 @@ final class SubtitleRemovalService
         // Eliminar el registro
         $stmt = \App\Storage\Database::pdo()->prepare('DELETE FROM subtitle_tracks WHERE id = ?');
         $stmt->execute([$track->id]);
+
+        // Invalidar el cache de pistas del objeto en memoria
+        $media->clearTracksCache();
         $result['deletedRecord'] = true;
 
         // Historial

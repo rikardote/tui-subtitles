@@ -68,10 +68,8 @@ final class QueueService
                 continue;
             }
 
-            $englishTracks = $media->englishTracks();
-            $track = $media->bestEnglishTextTrack();
-
-            $tasks[] = $this->enqueueTranslation($media, $track);
+            $track    = $media->bestEnglishTextTrack();
+            $tasks[]  = $this->enqueueTranslation($media, $track);
         }
 
         return $tasks;

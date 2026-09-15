@@ -30,8 +30,15 @@ final class ApiController
     public function dashboard(): array
     {
         $totalFiles = MediaFile::count();
-        $pendingFiles = (int) Database::pdo()->query("SELECT COUNT(*) FROM media_files WHERE status = 'pending'")->fetchColumn();
-        $analyzedFiles = (int) Database::pdo()->query("SELECT COUNT(*) FROM media_files WHERE status != 'pending'")->fetchColumn();
+
+        // Conteos por status en una sola query
+        $statusStmt = Database::pdo()->query("SELECT status, COUNT(*) as cnt FROM media_files GROUP BY status");
+        $statusCounts = [];
+        foreach ($statusStmt->fetchAll() as $row) {
+            $statusCounts[$row['status']] = (int) $row['cnt'];
+        }
+        $pendingFiles = $statusCounts[MediaFile::STATUS_PENDING] ?? 0;
+        $analyzedFiles = $totalFiles - $pendingFiles;
 
         // Conteo de archivos con español
         $sqlSpanish = "SELECT COUNT(DISTINCT media_file_id) FROM subtitle_tracks WHERE language_detected IN ('spa', 'es') OR language IN ('spa', 'es')";
@@ -44,23 +51,31 @@ final class ApiController
         $providerName = $provider->name();
         $providerAvailable = $provider->available();
 
-        // Bibliotecas
+        // Bibliotecas — una query por biblioteca (no hay N+1 aquí, son pocas)
         /** @var MediaPathService $pathService */
         $pathService = Container::get(MediaPathService::class);
         $libraryStats = [];
         foreach ($pathService->libraries() as $name => $path) {
-            $count = (int) Database::pdo()->prepare("SELECT COUNT(*) FROM media_files WHERE path LIKE ?")->execute([$path . '%']) ? Database::pdo()->query("SELECT COUNT(*) FROM media_files WHERE path LIKE '{$path}%'")->fetchColumn() : 0;
+            $stmt = Database::pdo()->prepare("SELECT COUNT(*) FROM media_files WHERE path LIKE ?");
+            $stmt->execute([$path . '%']);
+            $count = (int) $stmt->fetchColumn();
             $libraryStats[] = [
-                'name' => $name,
-                'path' => $path,
+                'name'   => $name,
+                'path'   => $path,
                 'exists' => is_dir($path),
-                'files' => (int) $count,
+                'files'  => $count,
             ];
         }
 
-        // Tareas recientes
-        $recentTasks = array_map(function (ProcessingTask $t) {
-            $media = MediaFile::findById($t->mediaFileId);
+        // Tareas recientes — batch load de media files (una sola query extra)
+        $recentTasksList = ProcessingTask::recent(5);
+        $recentMediaMap  = MediaFile::findByIds(
+            array_unique(array_map(fn (ProcessingTask $t) => $t->mediaFileId, $recentTasksList))
+        );
+
+        $recentTasks = array_map(function (ProcessingTask $t) use ($recentMediaMap) {
+            $media = $recentMediaMap[$t->mediaFileId] ?? null;
+
             return [
                 'id' => $t->id,
                 'uuid' => $t->uuid,
@@ -143,44 +158,55 @@ final class ApiController
         $dataStmt = Database::pdo()->prepare($dataSql);
         $dataStmt->execute($params);
 
-        $items = [];
-        foreach ($dataStmt->fetchAll() as $row) {
-            $media = MediaFile::findById((int) $row['id']);
-            if (! $media) continue;
+        // Construir MediaFile directamente desde los rows ya cargados (sin query extra por cada uno)
+        $mediaObjects = array_map(
+            fn (array $row) => MediaFile::fromRow($row),
+            $dataStmt->fetchAll()
+        );
 
-            $tracks = $media->tracks();
+        // Pre-cargar TODAS las tracks en una sola query adicional
+        $mediaIds = array_map(fn ($m) => $m->id, $mediaObjects);
+        $tracksByMedia = SubtitleTrack::forMediaFiles($mediaIds);
+        foreach ($mediaObjects as $m) {
+            $m->setTracksCache($tracksByMedia[$m->id] ?? []);
+        }
+
+        $items = [];
+        foreach ($mediaObjects as $media) {
+            $tracks     = $media->tracks();   // desde caché — sin query
             $hasSpanish = $media->hasSpanish();
             $englishCount = count($media->englishTracks());
 
             $items[] = [
-                'id' => $media->id,
-                'uuid' => $media->uuid,
-                'filename' => $media->filename,
-                'path' => $media->path,
-                'extension' => strtoupper($media->extension),
-                'file_size' => $this->humanSize($media->fileSize),
-                'file_size_raw' => $media->fileSize,
-                'duration' => $media->duration !== null ? round($media->duration / 60, 1) : null,
+                'id'               => $media->id,
+                'uuid'             => $media->uuid,
+                'filename'         => $media->filename,
+                'path'             => $media->path,
+                'extension'        => strtoupper($media->extension),
+                'file_size'        => $this->humanSize($media->fileSize),
+                'file_size_raw'    => $media->fileSize,
+                'duration'         => $media->duration !== null ? round($media->duration / 60, 1) : null,
                 'duration_formatted' => $media->duration !== null ? gmdate('H:i:s', (int) $media->duration) : null,
-                'status' => $media->status,
+                'status'           => $media->status,
                 'last_analyzed_at' => $media->lastAnalyzedAt,
-                'has_spanish' => $hasSpanish,
+                'has_spanish'      => $hasSpanish,
                 'english_tracks_count' => $englishCount,
-                'review_pending' => $this->reviewPendingCount($media),
-                'tracks_count' => count($tracks),
-                'tracks_summary' => array_map(fn (SubtitleTrack $t) => [
-                    'id' => $t->id,
+                'review_pending'   => $this->reviewPendingCount($media),
+                'tracks_count'     => count($tracks),
+                'tracks_summary'   => array_map(fn (SubtitleTrack $t) => [
+                    'id'          => $t->id,
                     'source_type' => $t->sourceType,
-                    'language' => $t->languageLabel(),
-                    'lang_code' => $t->languageDetected ?? $t->language ?? 'und',
-                    'codec' => $t->codecLabel(),
-                    'is_text' => $t->isTextBased,
-                    'is_sdh' => $t->isSdh,
-                    'is_forced' => $t->isForced,
+                    'language'    => $t->languageLabel(),
+                    'lang_code'   => $t->languageDetected ?? $t->language ?? 'und',
+                    'codec'       => $t->codecLabel(),
+                    'is_text'     => $t->isTextBased,
+                    'is_sdh'      => $t->isSdh,
+                    'is_forced'   => $t->isForced,
                     'is_generated' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED,
                 ], $tracks),
             ];
         }
+
 
         return [
             'data' => $items,
@@ -238,32 +264,39 @@ final class ApiController
             'has_spanish' => $media->hasSpanish(),
             'expected_output_path' => $expectedOutputPath,
             'output_file_exists' => $esFileExists,
-            'tracks' => array_map(fn (SubtitleTrack $t) => [
-                'id' => $t->id,
-                'source_type' => $t->sourceType,
-                'stream_index' => $t->streamIndex,
-                'path' => $t->path,
-                'language' => $t->languageLabel(),
-                'lang_code' => $t->languageDetected ?? $t->language ?? 'und',
-                'language_confidence' => $t->languageConfidence,
-                'codec' => $t->codecLabel(),
-                'raw_codec' => $t->codec,
-                'title' => $t->title,
-                'is_text' => $t->isTextBased,
-                'is_sdh' => $t->isSdh,
-                'is_forced' => $t->isForced,
-                'is_default' => $t->isDefault,
-                'is_generated' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED,
-                'can_delete' => $t->sourceType !== SubtitleTrack::SOURCE_INTERNAL,
-                'can_translate' => $t->isTextBased,
-                // Bloques problemáticos pendientes de revisión (revisión manual con DeepSeek)
-                'review_pending' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null
-                    ? count((array) @json_decode((string) @file_get_contents($t->path . '.review.json'), true))
-                    : 0,
-                'review_problems' => $t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null
-                    ? (array) @json_decode((string) @file_get_contents($t->path . '.review.json'), true)
-                    : [],
-            ], $tracks),
+            'tracks' => array_map(function (SubtitleTrack $t) {
+                // Leer .review.json una sola vez por pista generada
+                $reviewData = [];
+                if ($t->sourceType === SubtitleTrack::SOURCE_GENERATED && $t->path !== null) {
+                    $reviewPath = $t->path . '.review.json';
+                    if (is_file($reviewPath)) {
+                        $decoded = json_decode((string) file_get_contents($reviewPath), true);
+                        $reviewData = is_array($decoded) ? $decoded : [];
+                    }
+                }
+
+                return [
+                    'id'                 => $t->id,
+                    'source_type'        => $t->sourceType,
+                    'stream_index'       => $t->streamIndex,
+                    'path'               => $t->path,
+                    'language'           => $t->languageLabel(),
+                    'lang_code'          => $t->languageDetected ?? $t->language ?? 'und',
+                    'language_confidence'=> $t->languageConfidence,
+                    'codec'              => $t->codecLabel(),
+                    'raw_codec'          => $t->codec,
+                    'title'              => $t->title,
+                    'is_text'            => $t->isTextBased,
+                    'is_sdh'             => $t->isSdh,
+                    'is_forced'          => $t->isForced,
+                    'is_default'         => $t->isDefault,
+                    'is_generated'       => $t->sourceType === SubtitleTrack::SOURCE_GENERATED,
+                    'can_delete'         => $t->sourceType !== SubtitleTrack::SOURCE_INTERNAL,
+                    'can_translate'      => $t->isTextBased,
+                    'review_pending'     => count($reviewData),
+                    'review_problems'    => $reviewData,
+                ];
+            }, $tracks),
         ];
     }
 
@@ -585,25 +618,30 @@ final class ApiController
     {
         $tasks = ProcessingTask::recent(50);
 
+        // Batch load de media files — una sola query para todas las tareas
+        $mediaMap = MediaFile::findByIds(
+            array_unique(array_map(fn (ProcessingTask $t) => $t->mediaFileId, $tasks))
+        );
+
         return [
-            'tasks' => array_map(function (ProcessingTask $t) {
-                $media = MediaFile::findById($t->mediaFileId);
+            'tasks' => array_map(function (ProcessingTask $t) use ($mediaMap) {
+                $media = $mediaMap[$t->mediaFileId] ?? null;
                 return [
-                    'id' => $t->id,
-                    'uuid' => $t->uuid,
-                    'media_file_id' => $t->mediaFileId,
-                    'filename' => $media?->filename ?? '(video borrado)',
-                    'action' => $t->action,
-                    'action_label' => $t->actionLabel(),
-                    'status' => $t->status,
-                    'status_label' => $t->statusLabel(),
-                    'progress' => $t->progress,
+                    'id'              => $t->id,
+                    'uuid'            => $t->uuid,
+                    'media_file_id'   => $t->mediaFileId,
+                    'filename'        => $media?->filename ?? '(video borrado)',
+                    'action'          => $t->action,
+                    'action_label'    => $t->actionLabel(),
+                    'status'          => $t->status,
+                    'status_label'    => $t->statusLabel(),
+                    'progress'        => $t->progress,
                     'source_language' => $t->sourceLanguage,
                     'target_language' => $t->targetLanguage,
-                    'error_message' => $t->errorMessage,
-                    'started_at' => $t->startedAt,
-                    'completed_at' => $t->completedAt,
-                    'created_at' => $t->createdAt,
+                    'error_message'   => $t->errorMessage,
+                    'started_at'      => $t->startedAt,
+                    'completed_at'    => $t->completedAt,
+                    'created_at'      => $t->createdAt,
                 ];
             }, $tasks),
         ];
@@ -643,32 +681,38 @@ final class ApiController
     {
         /** @var \App\Services\Queue\QueueService $queue */
         $queue = Container::get(\App\Services\Queue\QueueService::class);
-        $active = $queue->activeTask();
+        $active      = $queue->activeTask();
         $activeMedia = $active ? MediaFile::findById($active->mediaFileId) : null;
+        $pendingList = $queue->pendingList();
+
+        // Batch load de media files para las tareas pendientes
+        $pendingMediaMap = MediaFile::findByIds(
+            array_unique(array_map(fn (ProcessingTask $t) => $t->mediaFileId, $pendingList))
+        );
 
         return [
-            'active' => $active !== null,
+            'active'       => $active !== null,
             'running_task' => $active ? [
-                'task_id' => $active->id,
-                'media_id' => $active->mediaFileId,
-                'filename' => $activeMedia?->filename ?? '',
-                'progress' => $active->progress,
-                'action' => $active->action,
+                'task_id'    => $active->id,
+                'media_id'   => $active->mediaFileId,
+                'filename'   => $activeMedia?->filename ?? '',
+                'progress'   => $active->progress,
+                'action'     => $active->action,
                 'action_label' => $active->actionLabel(),
                 'started_at' => $active->startedAt,
             ] : null,
             'pending_count' => $queue->pendingCount(),
-            'pending_tasks' => array_map(function (ProcessingTask $t) {
-                $media = MediaFile::findById($t->mediaFileId);
+            'pending_tasks' => array_map(function (ProcessingTask $t) use ($pendingMediaMap) {
+                $media = $pendingMediaMap[$t->mediaFileId] ?? null;
                 return [
-                    'task_id' => $t->id,
-                    'media_id' => $t->mediaFileId,
-                    'filename' => $media?->filename ?? '',
-                    'action' => $t->action,
+                    'task_id'      => $t->id,
+                    'media_id'     => $t->mediaFileId,
+                    'filename'     => $media?->filename ?? '',
+                    'action'       => $t->action,
                     'action_label' => $t->actionLabel(),
-                    'created_at' => $t->createdAt,
+                    'created_at'   => $t->createdAt,
                 ];
-            }, $queue->pendingList()),
+            }, $pendingList),
         ];
     }
 
@@ -886,20 +930,27 @@ final class ApiController
         $sql = "SELECT * FROM media_files {$whereSql} ORDER BY path ASC";
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute($params);
-        $files = $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+
+        // Construir objetos desde los rows ya cargados (sin query extra)
+        $allMedia = array_map(fn (array $row) => MediaFile::fromRow($row), $rows);
+
+        // Pre-cargar TODAS las tracks en una sola query
+        $allMediaIds = array_map(fn ($m) => $m->id, $allMedia);
+        $tracksByMedia = SubtitleTrack::forMediaFiles($allMediaIds);
+        foreach ($allMedia as $m) {
+            $m->setTracksCache($tracksByMedia[$m->id] ?? []);
+        }
 
         $pathService = Container::get(MediaPathService::class);
-        $libraries = $pathService->libraries();
+        $libraries   = $pathService->libraries();
 
         $tree = [];
 
-        foreach ($files as $row) {
-            $media = MediaFile::findById((int) $row['id']);
-            if (! $media) continue;
-
-            $tracks = $media->tracks();
+        foreach ($allMedia as $media) {
+            $tracks     = $media->tracks();    // desde caché
             $hasSpanish = $media->hasSpanish();
-            $path = $media->path;
+            $path       = $media->path;
 
             // Identificar biblioteca
             $libName = 'Otras';
@@ -916,34 +967,35 @@ final class ApiController
                 continue;
             }
 
-            $parts = explode('/', $relPath);
-            $filename = array_pop($parts);
+            $parts      = explode('/', $relPath);
+            $filename   = array_pop($parts);
             $folderPath = implode('/', $parts) ?: 'Raíz';
 
             if (! isset($tree[$libName])) {
                 $tree[$libName] = [
-                    'name' => $libName,
-                    'folders' => [],
-                    'total_files' => 0,
-                    'has_spanish' => 0,
-                    'review_pending' => 0,
-                    'pending_analysis' => 0,
+                    'name'            => $libName,
+                    'folders'         => [],
+                    'total_files'     => 0,
+                    'has_spanish'     => 0,
+                    'review_pending'  => 0,
+                    'pending_analysis'=> 0,
                 ];
             }
 
             if (! isset($tree[$libName]['folders'][$folderPath])) {
                 $tree[$libName]['folders'][$folderPath] = [
-                    'name' => $folderPath,
-                    'rel_path' => $folderPath,
-                    'files' => [],
-                    'total_files' => 0,
-                    'has_spanish' => 0,
-                    'review_pending' => 0,
-                    'pending_analysis' => 0,
+                    'name'            => $folderPath,
+                    'rel_path'        => $folderPath,
+                    'files'           => [],
+                    'total_files'     => 0,
+                    'has_spanish'     => 0,
+                    'review_pending'  => 0,
+                    'pending_analysis'=> 0,
                 ];
             }
 
-            $reviewCount = $this->reviewPendingCount($media);
+            // Calcular una sola vez por archivo (evita doble llamada en L983 + L1016)
+            $reviewCount   = $this->reviewPendingCount($media);
             $needsAnalysis = $media->status === MediaFile::STATUS_PENDING;
 
             $tree[$libName]['total_files']++;
@@ -962,25 +1014,25 @@ final class ApiController
             }
 
             $tree[$libName]['folders'][$folderPath]['files'][] = [
-                'id' => $media->id,
-                'uuid' => $media->uuid,
-                'filename' => $media->filename,
-                'path' => $media->path,
-                'rel_path' => $relPath,
-                'folder' => $folderPath,
-                'library' => $libName,
-                'extension' => strtoupper($media->extension),
-                'file_size' => $this->humanSize($media->fileSize),
-                'duration' => $media->duration !== null ? round($media->duration / 60, 1) : null,
-                'duration_formatted' => $media->duration !== null ? gmdate('H:i:s', (int) $media->duration) : null,
-                'status' => $media->status,
-                'has_spanish' => $hasSpanish,
-                'english_tracks_count' => count($media->englishTracks()),
-                'review_pending' => $this->reviewPendingCount($media),
-                'tracks_count' => count($tracks),
-                'tracks' => array_map(fn (SubtitleTrack $t) => [
-                    'id' => $t->id,
-                    'source_type' => $t->sourceType,
+                'id'                  => $media->id,
+                'uuid'                => $media->uuid,
+                'filename'            => $media->filename,
+                'path'                => $media->path,
+                'rel_path'            => $relPath,
+                'folder'              => $folderPath,
+                'library'             => $libName,
+                'extension'           => strtoupper($media->extension),
+                'file_size'           => $this->humanSize($media->fileSize),
+                'duration'            => $media->duration !== null ? round($media->duration / 60, 1) : null,
+                'duration_formatted'  => $media->duration !== null ? gmdate('H:i:s', (int) $media->duration) : null,
+                'status'              => $media->status,
+                'has_spanish'         => $hasSpanish,
+                'english_tracks_count'=> count($media->englishTracks()),
+                'review_pending'      => $reviewCount,  // reutiliza valor ya calculado
+                'tracks_count'        => count($tracks),
+                'tracks'              => array_map(fn (SubtitleTrack $t) => [
+                    'id'           => $t->id,
+                    'source_type'  => $t->sourceType,
                     'stream_index' => $t->streamIndex,
                     'language' => $t->languageLabel(),
                     'lang_code' => $t->languageDetected ?? $t->language ?? 'und',

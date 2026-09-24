@@ -11,9 +11,14 @@ mkdir -p /app/storage/database /app/storage/logs /app/storage/cache
 # Inicializar o migrar la base de datos SQLite si no existe
 php /app/scripts/init-db.php || true
 
-# Iniciar Worker de colas en segundo plano
+# Iniciar Worker de colas en segundo plano con auto-reinicio
 echo "=== Iniciando Worker de Cola de Traducción ==="
-nohup php /app/bin/worker > /app/storage/logs/worker.log 2>&1 &
+(
+  while true; do
+    php /app/bin/worker >> /app/storage/logs/worker.log 2>&1 || true
+    sleep 2
+  done
+) &
 
 # Escaneo automático periódico (registra + analiza archivos nuevos/modificados)
 SCAN_INTERVAL=${SCAN_INTERVAL_MINUTES:-15}

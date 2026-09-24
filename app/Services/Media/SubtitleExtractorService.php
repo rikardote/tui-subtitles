@@ -35,26 +35,35 @@ final class SubtitleExtractorService
      * Si la pista es de imagen (VobSub/PGS) y Tesseract está disponible,
      * realiza OCR automáticamente.
      */
-    public function extractInternal(MediaFile $media, SubtitleTrack $track, ?callable $onProgress = null): string
-    {
+    public function extractInternal(
+        MediaFile $media,
+        SubtitleTrack $track,
+        ?callable $onProgress = null,
+        ?ProcessingTask $parentTask = null,
+    ): string {
         if (! $track->isTextBased) {
-            return $this->extractImageWithOcr($media, $track, $onProgress);
+            return $this->extractImageWithOcr($media, $track, $onProgress, $parentTask);
         }
 
         $tmp = tempnam(sys_get_temp_dir(), 'sub_extract_') . '.srt';
         @unlink($tmp);
 
-        $task = new ProcessingTask();
-        $task->uuid = $this->uuid();
-        $task->mediaFileId = $media->id;
-        $task->subtitleTrackId = $track->id;
-        $task->action = ProcessingTask::ACTION_EXTRACT;
-        $task->status = ProcessingTask::STATUS_RUNNING;
-        $task->sourceLanguage = $track->language ?? $track->languageDetected;
-        $task->inputPath = $media->path;
-        $task->outputPath = $tmp;
-        $task->startedAt = gmdate('Y-m-d H:i:s');
-        $task->save();
+        $task = $parentTask;
+        $isOwnTask = false;
+        if ($task === null) {
+            $task = new ProcessingTask();
+            $task->uuid = $this->uuid();
+            $task->mediaFileId = $media->id;
+            $task->subtitleTrackId = $track->id;
+            $task->action = ProcessingTask::ACTION_EXTRACT;
+            $task->status = ProcessingTask::STATUS_RUNNING;
+            $task->sourceLanguage = $track->language ?? $track->languageDetected;
+            $task->inputPath = $media->path;
+            $task->outputPath = $tmp;
+            $task->startedAt = gmdate('Y-m-d H:i:s');
+            $task->save();
+            $isOwnTask = true;
+        }
 
         try {
             $this->ffmpeg->extractSubtitle($media->path, (int) $track->streamIndex, $tmp, true);
@@ -72,17 +81,23 @@ final class SubtitleExtractorService
                 );
             }
 
-            $task->status = ProcessingTask::STATUS_COMPLETED;
-            $task->progress = 100;
-            $task->completedAt = gmdate('Y-m-d H:i:s');
-            $task->save();
+            if ($isOwnTask) {
+                $task->subtitleTrackId = null;
+                $task->status = ProcessingTask::STATUS_COMPLETED;
+                $task->progress = 100;
+                $task->completedAt = gmdate('Y-m-d H:i:s');
+                $task->save();
+            }
 
             return $content;
         } catch (\Throwable $e) {
-            $task->status = ProcessingTask::STATUS_FAILED;
-            $task->errorMessage = $e->getMessage();
-            $task->completedAt = gmdate('Y-m-d H:i:s');
-            $task->save();
+            if ($isOwnTask) {
+                $task->subtitleTrackId = null;
+                $task->status = ProcessingTask::STATUS_FAILED;
+                $task->errorMessage = $e->getMessage();
+                $task->completedAt = gmdate('Y-m-d H:i:s');
+                $task->save();
+            }
 
             throw $e;
         } finally {
@@ -100,6 +115,7 @@ final class SubtitleExtractorService
         MediaFile $media,
         SubtitleTrack $track,
         ?callable $onProgress = null,
+        ?ProcessingTask $parentTask = null,
     ): string {
         if (! $this->ocr->available()) {
             throw new RuntimeException(
@@ -108,16 +124,21 @@ final class SubtitleExtractorService
             );
         }
 
-        $task = new ProcessingTask();
-        $task->uuid = $this->uuid();
-        $task->mediaFileId = $media->id;
-        $task->subtitleTrackId = $track->id;
-        $task->action = ProcessingTask::ACTION_EXTRACT;
-        $task->status = ProcessingTask::STATUS_RUNNING;
-        $task->sourceLanguage = $track->language ?? $track->languageDetected;
-        $task->inputPath = $media->path;
-        $task->startedAt = gmdate('Y-m-d H:i:s');
-        $task->save();
+        $task = $parentTask;
+        $isOwnTask = false;
+        if ($task === null) {
+            $task = new ProcessingTask();
+            $task->uuid = $this->uuid();
+            $task->mediaFileId = $media->id;
+            $task->subtitleTrackId = $track->id;
+            $task->action = ProcessingTask::ACTION_EXTRACT;
+            $task->status = ProcessingTask::STATUS_RUNNING;
+            $task->sourceLanguage = $track->language ?? $track->languageDetected;
+            $task->inputPath = $media->path;
+            $task->startedAt = gmdate('Y-m-d H:i:s');
+            $task->save();
+            $isOwnTask = true;
+        }
 
         try {
             // Seleccionar idioma Tesseract según el idioma de la pista
@@ -129,11 +150,13 @@ final class SubtitleExtractorService
                 (int) $track->streamIndex,
                 (string) $track->codec,
                 $ocrLang,
-                function (int $done, int $total) use ($task, $onProgress, &$lastPercent) {
+                function (int $done, int $total) use ($task, $onProgress, &$lastPercent, $isOwnTask) {
                     $percent = (int) round(($done / max(1, $total)) * 100);
                     if ($percent !== $lastPercent && ($percent % 2 === 0 || $done === $total)) {
-                        $task->progress = min(99, $percent);
-                        $task->save();
+                        if ($isOwnTask) {
+                            $task->progress = min(99, $percent);
+                            $task->save();
+                        }
                         $lastPercent = $percent;
                     }
                     if ($onProgress !== null) {
@@ -146,17 +169,23 @@ final class SubtitleExtractorService
                 throw new RuntimeException('El OCR no produjo texto reconocible.');
             }
 
-            $task->status = ProcessingTask::STATUS_COMPLETED;
-            $task->progress = 100;
-            $task->completedAt = gmdate('Y-m-d H:i:s');
-            $task->save();
+            if ($isOwnTask) {
+                $task->subtitleTrackId = null;
+                $task->status = ProcessingTask::STATUS_COMPLETED;
+                $task->progress = 100;
+                $task->completedAt = gmdate('Y-m-d H:i:s');
+                $task->save();
+            }
 
             return $srt;
         } catch (\Throwable $e) {
-            $task->status = ProcessingTask::STATUS_FAILED;
-            $task->errorMessage = $e->getMessage();
-            $task->completedAt = gmdate('Y-m-d H:i:s');
-            $task->save();
+            if ($isOwnTask) {
+                $task->subtitleTrackId = null;
+                $task->status = ProcessingTask::STATUS_FAILED;
+                $task->errorMessage = $e->getMessage();
+                $task->completedAt = gmdate('Y-m-d H:i:s');
+                $task->save();
+            }
 
             throw $e;
         }
@@ -230,8 +259,12 @@ final class SubtitleExtractorService
      * Fase 1: obtiene el contenido SRT de una pista (interna, externa o de imagen con OCR).
      * Convierte ASS/VTT a SRT cuando es necesario.
      */
-    public function getSrtContent(MediaFile $media, SubtitleTrack $track, ?callable $onProgress = null): string
-    {
+    public function getSrtContent(
+        MediaFile $media,
+        SubtitleTrack $track,
+        ?callable $onProgress = null,
+        ?ProcessingTask $parentTask = null,
+    ): string {
         if ($track->sourceType === SubtitleTrack::SOURCE_EXTERNAL) {
             $srt = $this->readExternal($track);
 
@@ -244,7 +277,7 @@ final class SubtitleExtractorService
         }
 
         // Pistas internas: texto directo o imagen con OCR
-        return $this->extractInternal($media, $track, $onProgress);
+        return $this->extractInternal($media, $track, $onProgress, $parentTask);
     }
 
     /**

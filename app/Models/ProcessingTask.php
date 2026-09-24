@@ -68,6 +68,14 @@ final class ProcessingTask
     {
         $now = Database::now();
 
+        if ($this->subtitleTrackId !== null) {
+            $check = Database::pdo()->prepare('SELECT 1 FROM subtitle_tracks WHERE id = ?');
+            $check->execute([$this->subtitleTrackId]);
+            if (! $check->fetchColumn()) {
+                $this->subtitleTrackId = null;
+            }
+        }
+
         if ($this->id > 0) {
             $sql = 'UPDATE processing_tasks SET
                         media_file_id = ?, subtitle_track_id = ?,

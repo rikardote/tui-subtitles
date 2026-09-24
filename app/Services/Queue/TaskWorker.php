@@ -47,7 +47,11 @@ final class TaskWorker
                 continue;
             }
 
-            $this->processTask($task);
+            try {
+                $this->processTask($task);
+            } catch (\Throwable $e) {
+                $this->log("Error crítico no capturado en tarea #{$task->id}: " . $e->getMessage());
+            }
 
             // Optimización: mientras se traduce la tarea actual,
             // pre-extraer el SRT de las siguientes tareas en cola
@@ -130,12 +134,13 @@ final class TaskWorker
                     $pct = min(99, (int) round(($done / max(1, $total)) * 100));
                     $task->progress = $pct;
                     $task->save();
-                });
+                }, $task);
 
                 file_put_contents($outputPath, $rawSrt, LOCK_EX);
 
                 $this->analyzer->analyze($media);
 
+                $task->subtitleTrackId = null;
                 $task->outputPath = $outputPath;
                 $task->status = ProcessingTask::STATUS_COMPLETED;
                 $task->progress = 100;
@@ -163,7 +168,7 @@ final class TaskWorker
                         $task->progress = $pct;
                         $task->save();
                     }
-                });
+                }, $task);
             }
 
             // Determinar la ruta de salida
@@ -214,10 +219,13 @@ final class TaskWorker
         } catch (Throwable $e) {
             // Distinguir una cancelación real (excepción tipada) de un error
             $isCancelled = $e instanceof \App\Exceptions\TaskCancelledException;
+            $task->subtitleTrackId = null;
             $task->status = $isCancelled ? ProcessingTask::STATUS_CANCELLED : ProcessingTask::STATUS_FAILED;
             $task->errorMessage = $e->getMessage();
             $task->completedAt = gmdate('Y-m-d H:i:s');
-            $task->save();
+            try {
+                $task->save();
+            } catch (Throwable) {}
 
             $this->log(($isCancelled ? 'Cancelada' : 'Error en') . " tarea #{$task->id}: " . $e->getMessage());
         }

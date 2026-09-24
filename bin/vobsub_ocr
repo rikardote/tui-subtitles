@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""
+vobsub_ocr — Decodificador de subtítulos de imagen (VobSub/DVD, etc.) con Tesseract OCR.
+Genera un archivo SRT con timestamps sincronizados.
+
+Uso:
+    bin/vobsub_ocr <video_path> <stream_index> <codec> <ocr_lang> <output_srt> [ffmpeg_bin]
+"""
+
+import sys
+import os
+import json
+import struct
+import subprocess
+import tempfile
+import shutil
+import re
+from PIL import Image
+
+def eprint(*args):
+    print(*args, file=sys.stderr, flush=True)
+
+def format_srt_time(seconds: float) -> str:
+    ms = int(round((seconds - int(seconds)) * 1000))
+    if ms >= 1000:
+        seconds += 1
+        ms -= 1000
+    sec = int(seconds) % 60
+    min_ = int(seconds // 60) % 60
+    hrs = int(seconds // 3600)
+    return f"{hrs:02d}:{min_:02d}:{sec:02d},{ms:03d}"
+
+def clean_ocr_text(text: str) -> str:
+    if not text:
+        return ""
+    lines = [l.strip() for l in text.splitlines()]
+    lines = [l for l in lines if l]
+    # Eliminar líneas que solo tienen un símbolo suelto tipo '*' o '.'
+    lines = [l for l in lines if re.search(r'[a-zA-Z0-9áéíóúñüÁÉÍÓÚÑÜ]', l)]
+    return "\n".join(lines)
+
+def decode_rle_half(data: bytes, offset: int, width: int, height: int):
+    class BitStream:
+        def __init__(self, data: bytes, offset: int):
+            self.data = data
+            self.byte_pos = offset
+            self.nibble_buf = None
+
+        def get_nibble(self) -> int:
+            if self.nibble_buf is not None:
+                n = self.nibble_buf
+                self.nibble_buf = None
+                return n
+            if self.byte_pos >= len(self.data):
+                return 0
+            b = self.data[self.byte_pos]
+            self.byte_pos += 1
+            self.nibble_buf = b & 0x0F
+            return (b >> 4) & 0x0F
+
+        def align_byte(self):
+            self.nibble_buf = None
+
+    bs = BitStream(data, offset)
+    lines = []
+
+    for _ in range(height):
+        line = []
+        while len(line) < width:
+            n1 = bs.get_nibble()
+            if n1 >= 4:
+                length = n1 >> 2
+                color = n1 & 3
+            else:
+                n2 = bs.get_nibble()
+                v = (n1 << 4) | n2
+                if v >= 16:
+                    length = v >> 2
+                    color = v & 3
+                else:
+                    n3 = bs.get_nibble()
+                    v = (v << 4) | n3
+                    if v >= 64:
+                        length = v >> 2
+                        color = v & 3
+                    else:
+                        n4 = bs.get_nibble()
+                        v = (v << 4) | n4
+                        length = v >> 2
+                        color = v & 3
+                        if length == 0:
+                            length = width - len(line)
+            line.extend([color] * min(length, width - len(line)))
+        bs.align_byte()
+        lines.append(line)
+    return lines
+
+def decode_spu(raw: bytes):
+    if len(raw) < 4:
+        return None
+    sp_size = struct.unpack('>H', raw[0:2])[0]
+    dcsq_ptr = struct.unpack('>H', raw[2:4])[0]
+
+    i = dcsq_ptr
+    coords = None
+    rle_top = None
+    rle_bot = None
+
+    visited = set()
+    while i < len(raw) and i not in visited:
+        visited.add(i)
+        curr_offset = i
+        if i + 4 > len(raw):
+            break
+        date = struct.unpack('>H', raw[i:i+2])[0]
+        next_dcsq = struct.unpack('>H', raw[i+2:i+4])[0]
+        i += 4
+
+        while i < len(raw):
+            cmd = raw[i]
+            i += 1
+            if cmd == 0xFF:
+                break
+            elif cmd in (0x00, 0x01, 0x02):
+                pass
+            elif cmd in (0x03, 0x04):
+                i += 2
+            elif cmd == 0x05:
+                if i + 6 > len(raw):
+                    break
+                x1 = (raw[i] << 4) | (raw[i+1] >> 4)
+                x2 = ((raw[i+1] & 0xF) << 8) | raw[i+2]
+                y1 = (raw[i+3] << 4) | (raw[i+4] >> 4)
+                y2 = ((raw[i+4] & 0xF) << 8) | raw[i+5]
+                i += 6
+                coords = (x1, y1, x2, y2)
+            elif cmd == 0x06:
+                if i + 4 > len(raw):
+                    break
+                rle_top = struct.unpack('>H', raw[i:i+2])[0]
+                rle_bot = struct.unpack('>H', raw[i+2:i+4])[0]
+                i += 4
+            elif cmd == 0x07:
+                i += 6
+            else:
+                break
+
+        if next_dcsq == curr_offset or next_dcsq >= len(raw) or next_dcsq < dcsq_ptr:
+            break
+        i = next_dcsq
+
+    if not coords or not rle_top:
+        return None
+
+    x1, y1, x2, y2 = coords
+    w = x2 - x1 + 1
+    h = y2 - y1 + 1
+    if w <= 0 or h <= 0 or w > 1920 or h > 1080:
+        return None
+
+    lines_top = decode_rle_half(raw, rle_top, w, (h + 1) // 2)
+    lines_bot = decode_rle_half(raw, rle_bot, w, h // 2)
+
+    all_lines = []
+    for r in range(h):
+        if r % 2 == 0:
+            row = lines_top[r // 2] if (r // 2) < len(lines_top) else [0] * w
+        else:
+            row = lines_bot[r // 2] if (r // 2) < len(lines_bot) else [0] * w
+        all_lines.append(row)
+
+    img = Image.new('RGB', (w, h), (0, 0, 0))
+    pixels = img.load()
+    for y in range(h):
+        for x in range(w):
+            val = all_lines[y][x]
+            if val == 0:
+                pixels[x, y] = (0, 0, 0)
+            elif val == 1:
+                pixels[x, y] = (255, 255, 255)
+            elif val == 2:
+                pixels[x, y] = (200, 200, 200)
+            else:
+                pixels[x, y] = (100, 100, 100)
+    return img
+
+def main():
+    if len(sys.argv) < 6:
+        eprint(f"Uso: {sys.argv[0]} <video_path> <stream_index> <codec> <ocr_lang> <output_srt> [ffmpeg_bin]")
+        sys.exit(1)
+
+    video_path = sys.argv[1]
+    stream_index = int(sys.argv[2])
+    codec = sys.argv[3]
+    ocr_lang = sys.argv[4]
+    output_srt = sys.argv[5]
+    ffmpeg_bin = sys.argv[6] if len(sys.argv) > 6 else 'ffmpeg'
+
+    if not os.path.isfile(video_path):
+        eprint(f"Error: no existe el archivo {video_path}")
+        sys.exit(1)
+
+    tmpdir = tempfile.mkdtemp(prefix='sub_ocr_')
+
+    try:
+        # Paso 1: Extraer el stream de subtítulo en un contenedor MKV ligero
+        mkv_path = os.path.join(tmpdir, 'sub_stream.mkv')
+        eprint("Extrayendo stream de subtítulos...")
+        cmd_ext = [
+            ffmpeg_bin, '-y', '-i', video_path,
+            '-map', f'0:{stream_index}',
+            '-c:s', 'copy',
+            mkv_path
+        ]
+        r = subprocess.run(cmd_ext, capture_output=True, timeout=120)
+        if r.returncode != 0 or not os.path.isfile(mkv_path):
+            eprint(f"Error extrayendo stream: {r.stderr.decode('utf-8', errors='replace')}")
+            sys.exit(1)
+
+        # Paso 2: Volcar los datos en bruto (rawvideo) y leer paquetes con ffprobe
+        raw_path = os.path.join(tmpdir, 'all_subtitles.raw')
+        cmd_raw = [
+            ffmpeg_bin, '-y', '-i', mkv_path,
+            '-map', '0:s:0',
+            '-c:s', 'copy',
+            '-f', 'rawvideo',
+            raw_path
+        ]
+        subprocess.run(cmd_raw, capture_output=True, timeout=120)
+        if not os.path.isfile(raw_path):
+            eprint("Error volcando paquetes raw del stream.")
+            sys.exit(1)
+
+        with open(raw_path, 'rb') as f:
+            raw_data = f.read()
+
+        cmd_probe = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_packets',
+            '-select_streams', 's:0',
+            mkv_path
+        ]
+        res_probe = subprocess.run(cmd_probe, capture_output=True, text=True, timeout=120)
+        packet_meta = json.loads(res_probe.stdout).get('packets', [])
+
+        real_packets = []
+        offset = 0
+        for p in packet_meta:
+            sz = int(p.get('size', 0))
+            chunk = raw_data[offset:offset+sz]
+            offset += sz
+            if sz > 100:
+                pts = float(p.get('pts_time', 0))
+                dur = float(p.get('duration_time', 2.0))
+                real_packets.append({'pts': pts, 'dur': dur, 'chunk': chunk})
+
+        total = len(real_packets)
+        eprint(f"Subtítulos de imagen detectados: {total}")
+
+        if total == 0:
+            eprint("No se encontraron paquetes con datos de imagen.")
+            sys.exit(1)
+
+        # Paso 3: Decodificar y ejecutar Tesseract OCR
+        blocks = []
+        for idx, item in enumerate(real_packets):
+            eprint(f"PROGRESS:{idx+1}/{total}")
+            img = decode_spu(item['chunk'])
+            if not img or img.width < 30 or img.height < 10:
+                continue
+
+            # Escalar x2 para mayor nitidez en Tesseract
+            img_scaled = img.resize((img.width * 2, img.height * 2), Image.BILINEAR)
+            img_file = os.path.join(tmpdir, f"frame_{idx}.png")
+            out_base = os.path.join(tmpdir, f"ocr_{idx}")
+            img_scaled.save(img_file)
+
+            subprocess.run(
+                ['tesseract', img_file, out_base, '-l', ocr_lang, '--psm', '6', 'quiet'],
+                capture_output=True, timeout=30
+            )
+
+            txt_file = out_base + '.txt'
+            if os.path.isfile(txt_file):
+                with open(txt_file, 'r', encoding='utf-8', errors='replace') as tf:
+                    text = clean_ocr_text(tf.read().strip())
+                if text:
+                    blocks.append({
+                        'start': item['pts'],
+                        'end': item['pts'] + item['dur'],
+                        'text': text
+                    })
+
+            # Limpiar archivo temporal de la imagen
+            if os.path.isfile(img_file):
+                os.unlink(img_file)
+            if os.path.isfile(txt_file):
+                os.unlink(txt_file)
+
+        eprint(f"Bloques de subtítulos reconocidos con éxito: {len(blocks)}")
+
+        # Paso 4: Construir y guardar SRT
+        lines = []
+        for srt_idx, b in enumerate(blocks, 1):
+            lines.append(str(srt_idx))
+            lines.append(f"{format_srt_time(b['start'])} --> {format_srt_time(b['end'])}")
+            lines.append(b['text'])
+            lines.append("")
+
+        srt_content = "\n".join(lines)
+        with open(output_srt, 'w', encoding='utf-8') as out_f:
+            out_f.write(srt_content)
+
+        eprint(f"SRT guardado en: {output_srt}")
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+if __name__ == '__main__':
+    main()

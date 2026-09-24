@@ -54,6 +54,41 @@ final class QueueService
     }
 
     /**
+     * Encola una tarea de extracción para un archivo multimedia.
+     */
+    public function enqueueExtraction(MediaFile $media, SubtitleTrack $track): ProcessingTask
+    {
+        $pdo = \App\Storage\Database::pdo();
+        $pdo->exec('BEGIN IMMEDIATE');
+
+        try {
+            $existing = $this->findActiveForMedia($media->id, ProcessingTask::ACTION_EXTRACT);
+            if ($existing !== null) {
+                $pdo->exec('COMMIT');
+
+                return $existing;
+            }
+
+            $task = new ProcessingTask();
+            $task->mediaFileId = $media->id;
+            $task->subtitleTrackId = $track->id;
+            $task->action = ProcessingTask::ACTION_EXTRACT;
+            $task->status = ProcessingTask::STATUS_PENDING;
+            $task->progress = 0;
+            $task->sourceLanguage = $track->language ?? $track->languageDetected ?? 'und';
+            $task->inputPath = $track->path ?? $media->path;
+            $task->save();
+
+            $pdo->exec('COMMIT');
+
+            return $task;
+        } catch (\Throwable $e) {
+            $pdo->exec('ROLLBACK');
+            throw $e;
+        }
+    }
+
+    /**
      * Encola múltiples archivos de video para traducción en lote.
      *
      * @param int[] $mediaIds
@@ -68,7 +103,7 @@ final class QueueService
                 continue;
             }
 
-            $track    = $media->bestEnglishTextTrack();
+            $track    = $media->bestEnglishTrack();
             $tasks[]  = $this->enqueueTranslation($media, $track);
         }
 

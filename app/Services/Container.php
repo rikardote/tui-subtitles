@@ -16,6 +16,7 @@ use App\Services\Jellyfin\JellyfinPathMapper;
 use App\Services\Jellyfin\JellyfinSyncService;
 use App\Services\Media\SubtitleExtractorService;
 use App\Services\Media\SubtitleRemovalService;
+use App\Services\Ocr\OcrService;
 use App\Services\Subtitle\LanguageDetectorService;
 use App\Services\Subtitle\SubtitleAnalyzerService;
 use App\Services\Subtitle\SubtitleFilenameService;
@@ -103,12 +104,17 @@ final class Container
                 self::get(SubtitleValidatorService::class),
                 self::get(TranslationBatchService::class),
             ),
+            OcrService::class => new OcrService(
+                self::get(FFmpeg::class),
+                self::get(ProcessRunner::class),
+            ),
             SubtitleExtractorService::class => new SubtitleExtractorService(
                 self::get(FFmpeg::class),
                 self::get(SubtitleFilenameService::class),
                 self::get(SubtitleValidatorService::class),
                 self::get(SubtitleParserService::class),
                 self::get(SubtitleTranslatorService::class),
+                self::get(OcrService::class),
             ),
             SubtitleRemovalService::class => new SubtitleRemovalService(),
             \App\Services\Queue\QueueService::class => new \App\Services\Queue\QueueService(),

@@ -590,17 +590,22 @@
                                 <span class="font-semibold text-slate-200" x-text="t.language"></span>
                                 <span x-show="t.is_sdh" class="text-amber-400 text-[10px] ml-1">(SDH)</span>
                                 <span x-show="t.is_forced" class="text-rose-400 text-[10px] ml-1" title="Subtítulo forzado: solo frases especiales (no el diálogo completo)">⚠ forzado</span>
+                                <span x-show="!t.is_text" class="text-sky-400 text-[10px] ml-1 bg-sky-950/70 border border-sky-800/60 px-1 py-0.5 rounded font-mono font-bold" title="Subtítulo de imagen procesable con Tesseract OCR">OCR</span>
                                 <span class="text-[10px] text-slate-500 ml-1" x-text="'[' + t.codec + ']'"></span>
                             </div>
                             <div class="space-x-1">
                                 <button x-show="t.can_translate && !t.is_forced" @click="translateTrack(activeMedia.id, t.id)"
-                                        class="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-medium transition">
-                                    Traducir
+                                        class="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-medium transition"
+                                        x-text="t.is_text ? 'Traducir' : 'Traducir (OCR)'">
                                 </button>
                                 <button x-show="t.can_translate && t.is_forced" @click="translateTrack(activeMedia.id, t.id)"
                                         class="px-2 py-0.5 bg-slate-600 hover:bg-slate-500 text-white rounded text-[10px] font-medium transition"
                                         title="Pista forzada: se ignorará y se usará la pista COMPLETA del episodio">
                                     Traducir (pista completa)
+                                </button>
+                                <button x-show="!t.is_generated" @click="extractTrack(activeMedia.id, t.id)"
+                                        class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-[10px] font-medium transition"
+                                        x-text="t.is_text ? 'Extraer' : 'Extraer (OCR)'">
                                 </button>
                                 <button x-show="t.review_pending > 0" @click="reviewTrack(t.id)"
                                         class="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-medium transition">
@@ -970,6 +975,25 @@
                             this.showToast('Error: ' + data.error);
                         }
                     } catch (e) { this.showToast('Error al encolar'); }
+                },
+
+                async extractTrack(mediaId, trackId) {
+                    this.showToast('Encolando extracción...');
+                    try {
+                        const res = await fetch(`/api/media/${mediaId}/extract`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ track_id: trackId })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            this.showToast('✓ Extracción agregada a la cola');
+                            this.mediaModalOpen = false;
+                            this.fetchQueueStatus();
+                        } else {
+                            this.showToast('Error: ' + (data.error || 'falló la extracción'));
+                        }
+                    } catch (e) { this.showToast('Error al extraer'); }
                 },
 
                 async cancelTask(taskId) {

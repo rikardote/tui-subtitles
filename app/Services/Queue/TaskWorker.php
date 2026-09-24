@@ -101,23 +101,70 @@ final class TaskWorker
             }
 
             if (! $track) {
-                $track = $media->bestEnglishTextTrack();
+                $track = $media->bestEnglishTextTrack() ?? $media->bestEnglishTrack();
             }
 
             if (! $track) {
                 // Re-analizar por si no se habían cargado las pistas
                 $this->analyzer->analyze($media);
-                $track = $media->bestEnglishTextTrack();
+                $track = $media->bestEnglishTextTrack() ?? $media->bestEnglishTrack();
             }
 
             if (! $track) {
-                throw new \RuntimeException('No se encontró ninguna pista de subtítulos en inglés para traducir.');
+                throw new \RuntimeException('No se encontró ninguna pista de subtítulos adecuada.');
             }
+
+            // Manejo de tarea de SOLO EXTRACCIÓN (texto u OCR)
+            if ($task->action === ProcessingTask::ACTION_EXTRACT) {
+                $lang = $track->languageDetected ?? $track->language ?? 'und';
+                $flags = ['sdh' => $track->isSdh, 'forced' => $track->isForced];
+                $outputPath = $this->filenameService->pathForMedia($media, $lang, $flags);
+
+                $this->log("Extrayendo pista #{$track->id} ({$track->codecLabel()}) para {$media->filename}...");
+
+                $rawSrt = $this->extractor->getSrtContent($media, $track, function (int $done, int $total) use ($task): void {
+                    $current = ProcessingTask::findById($task->id);
+                    if ($current && $current->status === ProcessingTask::STATUS_CANCELLED) {
+                        throw new \App\Exceptions\TaskCancelledException('Tarea cancelada por el usuario.');
+                    }
+                    $pct = min(99, (int) round(($done / max(1, $total)) * 100));
+                    $task->progress = $pct;
+                    $task->save();
+                });
+
+                file_put_contents($outputPath, $rawSrt, LOCK_EX);
+
+                $this->analyzer->analyze($media);
+
+                $task->outputPath = $outputPath;
+                $task->status = ProcessingTask::STATUS_COMPLETED;
+                $task->progress = 100;
+                $task->completedAt = gmdate('Y-m-d H:i:s');
+                $task->save();
+
+                $this->log("Extracción #{$task->id} completada: {$outputPath}");
+                return;
+            }
+
+            $isImage = ! $track->isTextBased;
 
             // Usar el SRT pre-extraído si existe, si no extraer ahora
             $cacheKey = sha1($media->id . '|' . $track->id);
-            $rawSrt = $this->usePreExtracted($cacheKey)
-                ?? $this->extractor->getSrtContent($media, $track);
+            $rawSrt = $this->usePreExtracted($cacheKey);
+
+            if ($rawSrt === null) {
+                if ($isImage) {
+                    $this->log("Extrayendo subtítulo de imagen ({$track->codecLabel()}) con OCR para {$media->filename}...");
+                }
+                $rawSrt = $this->extractor->getSrtContent($media, $track, function (int $done, int $total) use ($task, $isImage): void {
+                    if ($isImage) {
+                        // El OCR representa el primer 50% del proceso
+                        $pct = min(50, (int) round(($done / max(1, $total)) * 50));
+                        $task->progress = $pct;
+                        $task->save();
+                    }
+                });
+            }
 
             // Determinar la ruta de salida
             $lang = (string) config('translation.target_language', 'es');
@@ -130,14 +177,17 @@ final class TaskWorker
                 $track,
                 $rawSrt,
                 $outputPath,
-                function (int $done, int $total) use ($task): void {
+                function (int $done, int $total) use ($task, $isImage): void {
                     // Comprobar si la tarea fue cancelada externamente
                     $current = ProcessingTask::findById($task->id);
                     if ($current && $current->status === ProcessingTask::STATUS_CANCELLED) {
                         throw new \App\Exceptions\TaskCancelledException('Tarea cancelada por el usuario.');
                     }
 
-                    $percent = min(99, (int) round(($done / max(1, $total)) * 100));
+                    // Si fue OCR, la traducción abarca del 50% al 99%
+                    $base = $isImage ? 50 : 0;
+                    $scale = $isImage ? 0.49 : 0.99;
+                    $percent = min(99, $base + (int) round(($done / max(1, $total)) * ($scale * 100)));
                     $task->progress = $percent;
                     $task->save();
                 }

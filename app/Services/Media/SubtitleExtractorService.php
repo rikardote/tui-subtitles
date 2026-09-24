@@ -7,6 +7,7 @@ namespace App\Services\Media;
 use App\Models\MediaFile;
 use App\Models\ProcessingTask;
 use App\Models\SubtitleTrack;
+use App\Services\Ocr\OcrService;
 use App\Services\Subtitle\SubtitleFilenameService;
 use App\Services\Subtitle\SubtitleParserService;
 use App\Services\Subtitle\SubtitleValidatorService;
@@ -25,21 +26,23 @@ final class SubtitleExtractorService
         private readonly SubtitleValidatorService $validator,
         private readonly SubtitleParserService $parser,
         private readonly SubtitleTranslatorService $translator,
+        private readonly OcrService $ocr,
     ) {
     }
 
     /**
-     * Extrae una pista interna de texto y la guarda como SRT temporal.
-     * Devuelve el contenido SRT.
+     * Extrae una pista interna de texto y la devuelve como SRT.
+     * Si la pista es de imagen (VobSub/PGS) y Tesseract está disponible,
+     * realiza OCR automáticamente.
      */
-    public function extractInternal(MediaFile $media, SubtitleTrack $track): string
+    public function extractInternal(MediaFile $media, SubtitleTrack $track, ?callable $onProgress = null): string
     {
         if (! $track->isTextBased) {
-            throw new RuntimeException('La pista seleccionada es de imagen (requiere OCR, no disponible en esta PoC).');
+            return $this->extractImageWithOcr($media, $track, $onProgress);
         }
 
         $tmp = tempnam(sys_get_temp_dir(), 'sub_extract_') . '.srt';
-        @unlink($tmp); // tempnam crea el archivo; ffmpeg necesita que no exista el .srt final... en realidad -y lo sobreescribe
+        @unlink($tmp);
 
         $task = new ProcessingTask();
         $task->uuid = $this->uuid();
@@ -88,7 +91,131 @@ final class SubtitleExtractorService
     }
 
     /**
-     * Lee el contenido de un subtítulo externo.
+     * Realiza OCR de una pista de subtítulos de imagen (VobSub/PGS/DVD).
+     * Registra la tarea en processing_tasks y devuelve el SRT resultante.
+     *
+     * @param  callable|null  $onProgress  fn(int $done, int $total)
+     */
+    public function extractImageWithOcr(
+        MediaFile $media,
+        SubtitleTrack $track,
+        ?callable $onProgress = null,
+    ): string {
+        if (! $this->ocr->available()) {
+            throw new RuntimeException(
+                'Este subtítulo es de imagen (' . ($track->codec ?? 'imagen') . '). ' .
+                'Instala Tesseract OCR para procesarlo: sudo apt install tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa'
+            );
+        }
+
+        $task = new ProcessingTask();
+        $task->uuid = $this->uuid();
+        $task->mediaFileId = $media->id;
+        $task->subtitleTrackId = $track->id;
+        $task->action = ProcessingTask::ACTION_EXTRACT;
+        $task->status = ProcessingTask::STATUS_RUNNING;
+        $task->sourceLanguage = $track->language ?? $track->languageDetected;
+        $task->inputPath = $media->path;
+        $task->startedAt = gmdate('Y-m-d H:i:s');
+        $task->save();
+
+        try {
+            // Seleccionar idioma Tesseract según el idioma de la pista
+            $ocrLang = $this->resolveOcrLanguage($track);
+
+            $lastPercent = 0;
+            $srt = $this->ocr->extractAndOcr(
+                $media->path,
+                (int) $track->streamIndex,
+                (string) $track->codec,
+                $ocrLang,
+                function (int $done, int $total) use ($task, $onProgress, &$lastPercent) {
+                    $percent = (int) round(($done / max(1, $total)) * 100);
+                    if ($percent !== $lastPercent && ($percent % 2 === 0 || $done === $total)) {
+                        $task->progress = min(99, $percent);
+                        $task->save();
+                        $lastPercent = $percent;
+                    }
+                    if ($onProgress !== null) {
+                        $onProgress($done, $total);
+                    }
+                },
+            );
+
+            if (trim($srt) === '') {
+                throw new RuntimeException('El OCR no produjo texto reconocible.');
+            }
+
+            $task->status = ProcessingTask::STATUS_COMPLETED;
+            $task->progress = 100;
+            $task->completedAt = gmdate('Y-m-d H:i:s');
+            $task->save();
+
+            return $srt;
+        } catch (\Throwable $e) {
+            $task->status = ProcessingTask::STATUS_FAILED;
+            $task->errorMessage = $e->getMessage();
+            $task->completedAt = gmdate('Y-m-d H:i:s');
+            $task->save();
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Traduce una pista de imagen: OCR → traducción → guarda SRT.
+     *
+     * @param  callable|null  $onProgress  fn(int $done, int $total)
+     * @return array{outputPath:string, blocks:int}
+     */
+    public function extractImageAndTranslate(
+        MediaFile $media,
+        SubtitleTrack $track,
+        ?callable $onProgress = null,
+    ): array {
+        // Fase 1: OCR → SRT
+        $srt = $this->extractImageWithOcr($media, $track);
+
+        // Fase 2: traducir y guardar
+        return $this->saveTranslated($media, $track, $srt, $onProgress);
+    }
+
+    /**
+     * Devuelve el código de idioma Tesseract para la pista dada.
+     * Tesseract usa ISO 639-3 (eng, spa, fra…) igual que FFprobe.
+     */
+    private function resolveOcrLanguage(SubtitleTrack $track): string
+    {
+        $lang = $track->languageDetected ?? $track->language ?? 'eng';
+
+        // Normalizar los alias más comunes
+        $map = [
+            'en'  => 'eng',
+            'es'  => 'spa',
+            'fr'  => 'fra',
+            'de'  => 'deu',
+            'it'  => 'ita',
+            'pt'  => 'por',
+            'ja'  => 'jpn',
+            'zh'  => 'chi_sim',
+            'ko'  => 'kor',
+            'ru'  => 'rus',
+            'ar'  => 'ara',
+        ];
+
+        $lang = $map[$lang] ?? $lang;
+
+        // Verificar que el idioma está instalado; si no, intentar 'eng'
+        $available = $this->ocr->availableLanguages();
+        if (! in_array($lang, $available, true) && in_array('eng', $available, true)) {
+            $lang = 'eng';
+        }
+
+        return $lang;
+    }
+
+    /**
+     * Reads the external subtitle file content.
      */
     public function readExternal(SubtitleTrack $track): string
     {
@@ -100,10 +227,10 @@ final class SubtitleExtractorService
     }
 
     /**
-     * Fase 1: obtiene el contenido SRT de una pista (interna o externa).
+     * Fase 1: obtiene el contenido SRT de una pista (interna, externa o de imagen con OCR).
      * Convierte ASS/VTT a SRT cuando es necesario.
      */
-    public function getSrtContent(MediaFile $media, SubtitleTrack $track): string
+    public function getSrtContent(MediaFile $media, SubtitleTrack $track, ?callable $onProgress = null): string
     {
         if ($track->sourceType === SubtitleTrack::SOURCE_EXTERNAL) {
             $srt = $this->readExternal($track);
@@ -116,7 +243,8 @@ final class SubtitleExtractorService
             return $srt;
         }
 
-        return $this->extractInternal($media, $track);
+        // Pistas internas: texto directo o imagen con OCR
+        return $this->extractInternal($media, $track, $onProgress);
     }
 
     /**

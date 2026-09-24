@@ -1,6 +1,6 @@
 FROM php:8.3-cli-alpine
 
-# Instalar dependencias del sistema (FFmpeg, FFprobe, SQLite, cURL)
+# Instalar dependencias del sistema (FFmpeg, FFprobe, SQLite, cURL, Tesseract OCR, Python/Pillow)
 RUN apk add --no-cache \
     ffmpeg \
     sqlite \
@@ -9,7 +9,12 @@ RUN apk add --no-cache \
     git \
     unzip \
     libzip-dev \
-    oniguruma-dev
+    oniguruma-dev \
+    tesseract-ocr \
+    tesseract-ocr-data-eng \
+    tesseract-ocr-data-spa \
+    python3 \
+    py3-pillow
 
 # Instalar extensiones de PHP necesarias
 RUN docker-php-ext-install \

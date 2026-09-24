@@ -307,6 +307,28 @@ final class MediaFile
         return null;
     }
 
+    /**
+     * Mejor pista en inglés global (texto o imagen procesable con OCR).
+     */
+    public function bestEnglishTrack(): ?SubtitleTrack
+    {
+        $textTrack = $this->bestEnglishTextTrack();
+        if ($textTrack !== null) {
+            return $textTrack;
+        }
+
+        /** @var \App\Services\Ocr\OcrService $ocr */
+        $ocr = \App\Services\Container::get(\App\Services\Ocr\OcrService::class);
+        if (! $ocr->available()) {
+            return null;
+        }
+
+        $tracks = $this->englishTracks();
+        $nonForced = array_values(array_filter($tracks, fn (SubtitleTrack $t) => ! $t->isForced));
+
+        return $nonForced[0] ?? ($tracks[0] ?? null);
+    }
+
     public function directory(): string
     {
         return dirname($this->path);

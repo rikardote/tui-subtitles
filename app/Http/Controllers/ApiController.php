@@ -292,7 +292,7 @@ final class ApiController
                     'is_default'         => $t->isDefault,
                     'is_generated'       => $t->sourceType === SubtitleTrack::SOURCE_GENERATED,
                     'can_delete'         => $t->sourceType !== SubtitleTrack::SOURCE_INTERNAL,
-                    'can_translate'      => $t->isTextBased,
+                    'can_translate'      => $t->isTextBased || \App\Services\Container::get(\App\Services\Ocr\OcrService::class)->available(),
                     'review_pending'     => count($reviewData),
                     'review_problems'    => $reviewData,
                 ];
@@ -353,25 +353,31 @@ final class ApiController
                 }
             }
         } else {
-            // Auto-seleccionar: mejor pista de texto en inglés (nunca forced si hay alternativa)
-            $targetTrack = $media->bestEnglishTextTrack();
+            // Auto-seleccionar: mejor pista en inglés (texto o imagen procesable con OCR)
+            $targetTrack = $media->bestEnglishTrack();
 
             if (! $targetTrack) {
-                // Fallback: primera pista de texto no-forced en cualquier idioma
+                // Fallback: primera pista no-forced en cualquier idioma
                 $candidates = array_values(array_filter(
                     $tracks,
-                    fn ($t) => $t->isTextBased && ! $t->isForced
+                    fn ($t) => ! $t->isForced
                 ));
                 $targetTrack = $candidates[0] ?? null;
             }
         }
 
         if (! $targetTrack) {
-            throw new \RuntimeException('No se encontró una pista de subtítulos de texto adecuada para traducir.');
+            throw new \RuntimeException('No se encontró una pista de subtítulos adecuada para traducir.');
         }
 
         if (! $targetTrack->isTextBased) {
-            throw new \RuntimeException('La pista seleccionada es de imagen (PGS/VobSub) y no se puede traducir sin OCR.');
+            /** @var \App\Services\Ocr\OcrService $ocr */
+            $ocr = Container::get(\App\Services\Ocr\OcrService::class);
+            if (! $ocr->available()) {
+                throw new \RuntimeException(
+                    'La pista seleccionada es de imagen (' . $targetTrack->codecLabel() . ') y requiere Tesseract OCR.'
+                );
+            }
         }
 
         // Si se seleccionó una pista FORZADA (solo frases especiales, no el diálogo
@@ -443,21 +449,23 @@ final class ApiController
             throw new \RuntimeException('Pista no válida');
         }
 
-        /** @var SubtitleFilenameService $filenameService */
-        $filenameService = Container::get(SubtitleFilenameService::class);
-        $lang = $targetTrack->languageDetected ?? $targetTrack->language ?? 'und';
-        $flags = ['sdh' => $targetTrack->isSdh, 'forced' => $targetTrack->isForced];
-        $outputPath = $filenameService->pathForMedia($media, $lang, $flags);
+        if (! $targetTrack->isTextBased) {
+            /** @var \App\Services\Ocr\OcrService $ocr */
+            $ocr = Container::get(\App\Services\Ocr\OcrService::class);
+            if (! $ocr->available()) {
+                throw new \RuntimeException('La pista seleccionada es de imagen y requiere Tesseract OCR.');
+            }
+        }
 
-        /** @var SubtitleExtractorService $extractor */
-        $extractor = Container::get(SubtitleExtractorService::class);
-        $srt = $extractor->getSrtContent($media, $targetTrack);
-
-        file_put_contents($outputPath, $srt, LOCK_EX);
+        /** @var \App\Services\Queue\QueueService $queue */
+        $queue = Container::get(\App\Services\Queue\QueueService::class);
+        $task = $queue->enqueueExtraction($media, $targetTrack);
 
         return [
             'success' => true,
-            'output_path' => $outputPath,
+            'queued' => true,
+            'task_id' => $task->id,
+            'message' => 'Extracción agregada a la cola de tareas',
         ];
     }
 
@@ -1040,7 +1048,7 @@ final class ApiController
                     'is_text' => $t->isTextBased,
                     'is_sdh' => $t->isSdh,
                     'is_forced' => $t->isForced,
-                    'can_translate' => $t->isTextBased,
+                    'can_translate' => $t->isTextBased || \App\Services\Container::get(\App\Services\Ocr\OcrService::class)->available(),
                     'can_delete' => $t->sourceType !== SubtitleTrack::SOURCE_INTERNAL,
                 ], $tracks),
             ];

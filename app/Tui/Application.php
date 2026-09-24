@@ -224,7 +224,9 @@ final class Application
                 $label .= ' (forced)';
             }
             if (! $track->isTextBased) {
-                $label .= ' ⚠ imagen';
+                /** @var \App\Services\Ocr\OcrService $ocr */
+                $ocr = \App\Services\Container::get(\App\Services\Ocr\OcrService::class);
+                $label .= $ocr->available() ? ' 🔍 OCR' : ' ⚠ imagen (sin OCR)';
             }
             if ($track->sourceType === 'generated') {
                 $label .= ' ✓ generado por la app';
@@ -296,17 +298,21 @@ final class Application
         );
 
         if ($tracks !== []) {
+            /** @var \App\Services\Ocr\OcrService $ocr */
+            $ocr = \App\Services\Container::get(\App\Services\Ocr\OcrService::class);
+            $ocrAvailable = $ocr->available();
+
             $rows = [];
             foreach ($tracks as $track) {
                 $rows[] = [
                     match ($track->sourceType) {
-                        'internal' => 'Interna #' . $track->streamIndex,
+                        'internal'  => 'Interna #' . $track->streamIndex,
                         'generated' => 'Generada',
-                        default => 'Externa',
+                        default     => 'Externa',
                     },
                     $track->languageLabel(),
                     $track->codecLabel(),
-                    $track->isTextBased ? 'Texto' : 'Imagen',
+                    $track->isTextBased ? 'Texto' : ($ocrAvailable ? 'OCR 🔍' : 'Imagen ⚠'),
                     $track->isSdh ? 'SDH' : '',
                 ];
             }
@@ -320,6 +326,18 @@ final class Application
         } elseif ($media->englishTracks() !== []) {
             note('⚠ No existe español, pero hay inglés disponible para traducción.');
         }
+
+        // Avisar si hay pistas de imagen procesables con OCR
+        $imageTracks = array_filter($tracks, fn ($t) => ! $t->isTextBased && $t->sourceType === 'internal');
+        if (count($imageTracks) > 0) {
+            /** @var \App\Services\Ocr\OcrService $ocr2 */
+            $ocr2 = \App\Services\Container::get(\App\Services\Ocr\OcrService::class);
+            if ($ocr2->available()) {
+                note('🔍 Hay ' . count($imageTracks) . ' pista(s) de imagen — selecciónala para aplicar OCR.');
+            } else {
+                note('⚠ Hay ' . count($imageTracks) . ' pista(s) de imagen. Instala Tesseract OCR para procesarlas.');
+            }
+        }
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -328,14 +346,15 @@ final class Application
 
     private function trackActions(MediaFile $media, \App\Models\SubtitleTrack $track): void
     {
+        // Pistas de imagen: PGS / VobSub / DVD → pipeline OCR
         if (! $track->isTextBased) {
-            warning('Este subtítulo es de imagen (PGS/VobSub). Requiere OCR, no disponible en esta PoC.');
+            $this->trackActionsImageOcr($media, $track);
             return;
         }
 
         $options = [
             'translate' => 'Traducir al español',
-            'extract' => 'Solo extraer',
+            'extract'   => 'Solo extraer',
         ];
 
         // Los subtítulos generados o externos pueden eliminarse
@@ -376,6 +395,141 @@ final class Application
         }
 
         $this->translate($media, $track, $output);
+    }
+
+    /**
+     * Acciones para pistas de imagen (VobSub / PGS / DVD) — flujo OCR.
+     */
+    private function trackActionsImageOcr(MediaFile $media, \App\Models\SubtitleTrack $track): void
+    {
+        /** @var \App\Services\Ocr\OcrService $ocr */
+        $ocr = \App\Services\Container::get(\App\Services\Ocr\OcrService::class);
+
+        $codecLabel = $track->codecLabel();
+
+        if (! $ocr->available()) {
+            warning(
+                "Este subtítulo es de imagen ({$codecLabel}) y requiere Tesseract OCR.\n" .
+                "Instálalo con:\n" .
+                "  sudo apt install tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa\n" .
+                'Luego reinicia la aplicación.'
+            );
+            return;
+        }
+
+        $version = $ocr->version();
+        $langs   = implode(', ', $ocr->availableLanguages());
+
+        note("🔍 OCR disponible — Tesseract {$version} | Idiomas: {$langs}");
+
+        $options = [
+            'ocr-translate' => '🌐 OCR + Traducir al español',
+            'ocr-extract'   => '📄 Solo OCR (extraer texto sin traducir)',
+            '__back'        => '← Volver',
+        ];
+
+        $action = select(
+            "Pista de imagen ({$codecLabel}) — " . $track->languageLabel(),
+            $options,
+            default: 'ocr-translate'
+        );
+
+        if ($action === '__back') {
+            return;
+        }
+
+        try {
+            if ($action === 'ocr-extract') {
+                $this->extractOcrOnly($media, $track);
+                return;
+            }
+
+            $this->translateWithOcr($media, $track);
+        } catch (\Throwable $e) {
+            warning('Error en el OCR: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * OCR sin traducción: extrae el texto y guarda el SRT junto al video.
+     */
+    private function extractOcrOnly(MediaFile $media, \App\Models\SubtitleTrack $track): void
+    {
+        $output = $this->filenames->pathForMedia($media, $track->language ?? 'und');
+
+        if (file_exists($output)) {
+            $overwrite = confirm("Ya existe {$output}. ¿Desea sobrescribirlo?", default: false);
+            if (! $overwrite) {
+                warning('Operación cancelada.');
+                return;
+            }
+            @unlink($output);
+        }
+
+        $total    = 0;
+        $srt = spin(
+            function () use ($media, $track, &$total): string {
+                // El progreso OCR se hace en segundo plano; total desconocido antes de empezar.
+                $srt = $this->extractor->extractImageWithOcr($media, $track);
+                $total = substr_count($srt, "\n\n");
+                return $srt;
+            },
+            "Aplicando OCR (" . $track->codecLabel() . ")..."
+        );
+
+        file_put_contents($output, $srt, LOCK_EX);
+
+        note('✓ OCR completado');
+        note("Archivo generado: {$output}");
+        note("Bloques reconocidos: ~{$total}");
+    }
+
+    /**
+     * OCR + Traducción: OCR en spinner, luego traducción con barra de progreso.
+     */
+    private function translateWithOcr(MediaFile $media, \App\Models\SubtitleTrack $track): void
+    {
+        $output = $this->filenames->pathForMedia($media, (string) config('translation.target_language', 'es'));
+
+        if (file_exists($output)) {
+            $overwrite = confirm("Ya existe {$output}. ¿Desea sobrescribirlo?", default: false);
+            if (! $overwrite) {
+                warning('Operación cancelada.');
+                return;
+            }
+            @unlink($output);
+        }
+
+        // Fase 1: OCR (puede tardar; sin progreso de frames visible — spinner)
+        $srt = spin(
+            fn () => $this->extractor->extractImageWithOcr($media, $track),
+            'Aplicando OCR (' . $track->codecLabel() . ')...'
+        );
+
+        // Fase 2: Traducir con barra de progreso
+        $parser = \App\Services\Container::get(\App\Services\Subtitle\SubtitleParserService::class);
+        $total  = count($parser->parse($srt));
+
+        $provider = \App\Services\Container::get(\App\Services\Translation\TranslationProviderInterface::class);
+        $bar = progress('Traduciendo ' . $total . ' bloques con ' . $provider->name() . '...', $total);
+        $bar->start();
+
+        $lastDone = 0;
+        $result = $this->extractor->saveTranslated(
+            $media,
+            $track,
+            $srt,
+            function (int $done) use ($bar, &$lastDone): void {
+                $bar->advance($done - $lastDone);
+                $lastDone = $done;
+            }
+        );
+
+        $bar->finish();
+
+        note('✓ OCR + Traducción completada');
+        note('Archivo generado: ' . $result['outputPath']);
+        note('Bloques traducidos: ' . $result['blocks']);
     }
 
     private function extractOnly(MediaFile $media, \App\Models\SubtitleTrack $track, string $output): void
